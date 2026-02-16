@@ -25,7 +25,10 @@ AI-powered day trading agent. See [Project Constitution](.specify/memory/constit
 - SQLite (WAL mode, PRAGMA user_version migrations) (001-project-scaffolding)
 - Python 3.12+ (existing project) + edgartools>=5.16, finnhub-python>=2.4, earningscall>=1.4, anthropic>=0.45, feedparser>=6.0, beautifulsoup4>=4.12, pydantic>=2.0 (new); alpaca-py, httpx (existing) (002-research-ingestion)
 - SQLite (extends existing DB with 5 new tables) + filesystem for raw documents (`research_data/`) (002-research-ingestion)
+- Python 3.12+ (existing project) + alpaca-py >=0.43 (existing) — `StockHistoricalDataClient`, `StockBarsRequest`, `StockSnapshotRequest` (003-market-data)
+- SQLite (extends existing DB with 3 new tables: `price_bar`, `technical_indicator`, `market_data_fetch`), schema version 2 → 3 (003-market-data)
 
 ## Recent Changes
+- 003-market-data: Added Alpaca historical OHLCV bars, real-time snapshots, technical indicators (SMA, RSI, VWAP), 4 CLI commands under `market` group
 - 002-research-ingestion: Refactored Finnhub to free-tier market signals source; added EarningsCall.biz for transcripts
 - 001-project-scaffolding: Added Python 3.12+ with type hints throughou + alpaca-py (>=0.43), httpx, python-dotenv (local dev only)

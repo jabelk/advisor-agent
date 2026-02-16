@@ -4,6 +4,23 @@ All notable changes to the finance-agent project will be documented in this file
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.0] - 2026-02-16
+
+### Added
+
+- Market data integration via Alpaca Data API (historical OHLCV bars + real-time snapshots)
+- Historical daily bars (2yr lookback) and hourly bars (30d lookback) with incremental fetch
+- Technical indicators: SMA-20, SMA-50, RSI-14, VWAP — pure Python, latest values persisted
+- Token-bucket rate limiter at 180 req/min (90% of Alpaca free-tier limit)
+- `finance-agent market fetch` — fetch bars for watchlist companies with auto-indicator computation
+- `finance-agent market snapshot` — real-time price/bid/ask/volume for any ticker
+- `finance-agent market status` — summary of stored data coverage and latest indicators
+- `finance-agent market indicators` — recompute technical indicators on demand
+- Market Data API connectivity check in `finance-agent health`
+- SQLite schema v3 with 3 new tables: price_bar, technical_indicator, market_data_fetch
+- Audit logging for all fetch operations via market_data_fetch table
+- 27 unit tests for market module, 5 integration tests against live Alpaca API (163 total)
+
 ## [0.2.0] - 2026-02-16
 
 ### Added
