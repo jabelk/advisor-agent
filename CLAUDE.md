@@ -19,3 +19,10 @@ AI-powered day trading agent. See [Project Constitution](.specify/memory/constit
 - All features via spec-kit: specify → plan → tasks → implement
 - Feature branches merged to `main` via PR
 - See [Quality Gates](.specify/memory/constitution.md#quality-gates) in constitution
+
+## Active Technologies
+- Python 3.12+ with type hints throughou + alpaca-py (>=0.43), httpx, python-dotenv (local dev only) (001-project-scaffolding)
+- SQLite (WAL mode, PRAGMA user_version migrations) (001-project-scaffolding)
+
+## Recent Changes
+- 001-project-scaffolding: Added Python 3.12+ with type hints throughou + alpaca-py (>=0.43), httpx, python-dotenv (local dev only)
