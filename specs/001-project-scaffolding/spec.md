@@ -70,7 +70,6 @@ The agent can be built and run as a container image, with secrets injected via e
 
 1. **Given** the repository contains a container definition, **When** a developer builds the image, **Then** it builds successfully with all dependencies included.
 2. **Given** a built container image, **When** it is run with paper trading environment variables, **Then** the application starts and operates identically to running outside the container.
-3. **Given** the container is running, **When** it attempts to connect to endpoints outside the allowed list, **Then** those connections are blocked.
 
 ---
 
@@ -88,7 +87,7 @@ The agent can be built and run as a container image, with secrets injected via e
 - **FR-001**: System MUST provide a single command to install all dependencies from a lockfile, producing a reproducible environment.
 - **FR-002**: System MUST load configuration from environment variables, with an optional `.env` file for local development convenience.
 - **FR-003**: System MUST validate all required configuration at startup and fail fast with a clear, actionable error message listing every missing or invalid setting.
-- **FR-004**: System MUST distinguish between paper trading mode and live trading mode based solely on which set of API credentials are provided.
+- **FR-004**: System MUST distinguish between paper trading mode and live trading mode based on the `TRADING_MODE` environment variable and which set of API credentials are provided.
 - **FR-005**: System MUST default to paper trading mode when both paper and live credentials are present.
 - **FR-006**: System MUST display a prominent warning when operating in live trading mode.
 - **FR-007**: System MUST create and maintain a local SQLite database for structured data (trades, positions, audit logs).

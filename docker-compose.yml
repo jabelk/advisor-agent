@@ -1,0 +1,29 @@
+# Finance Agent: Docker Compose configuration
+# Secrets are read from ./secrets/ directory (created during deploy)
+
+services:
+  app:
+    build: .
+    container_name: finance-agent
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    secrets:
+      - alpaca_api_key
+      - alpaca_secret_key
+    environment:
+      - TRADING_MODE=paper
+      - DB_PATH=/app/data/finance_agent.db
+      - LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD", "finance-agent", "health"]
+      interval: 5m
+      timeout: 30s
+      retries: 3
+      start_period: 10s
+
+secrets:
+  alpaca_api_key:
+    file: ./secrets/alpaca_api_key.txt
+  alpaca_secret_key:
+    file: ./secrets/alpaca_secret_key.txt

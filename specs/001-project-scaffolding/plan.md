@@ -27,7 +27,7 @@ Scaffold the finance-agent Python project with uv, establishing the modular `src
 |-----------|--------|-------|
 | I. Safety First | PASS | `paper=True` is the alpaca-py default. Config layer defaults to paper mode. Live mode requires explicit env vars + displays prominent warning. |
 | II. Research-Driven | N/A | Scaffolding feature — no trading decisions involved. |
-| III. Modular Architecture | PASS | Src layout with separate sub-packages per layer: `data/`, `research/`, `engine/`, `execution/`, `logging/`. Empty stubs in this feature. |
+| III. Modular Architecture | PASS | Src layout with separate sub-packages per layer: `data/`, `research/`, `engine/`, `execution/`, `audit/`. Empty stubs in this feature. |
 | IV. Audit Everything | PASS | SQLite audit_log table with append-only triggers (BEFORE UPDATE/DELETE → RAISE ABORT). Schema initialized at startup. |
 | V. Security by Design | PASS | Secrets from env vars only, `.env` in `.gitignore`, separate paper/live key names, Docker secrets via `/run/secrets/`, live keys never in dev env. |
 | Development Workflow | PASS | Feature branch, PR to main, spec-kit workflow followed. |

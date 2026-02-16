@@ -69,3 +69,7 @@ Applies all pending migrations. Returns the number of migrations applied. Each m
 ### Audit logger: `AuditLogger.log(event_type: str, source: str, payload: dict) -> None`
 
 Writes an immutable audit event to the `audit_log` table. The `payload` dict is JSON-serialized.
+
+### Audit query: `AuditLogger.query(start: str | None = None, end: str | None = None, event_type: str | None = None) -> list[dict]`
+
+Returns audit events matching the given filters. All parameters are optional; omitting all returns all events. `start` and `end` are ISO 8601 UTC timestamps for time-range filtering. Results are returned in chronological order.
