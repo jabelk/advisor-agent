@@ -1,7 +1,8 @@
 <!-- Sync Impact Report
-  Version change: 0.0.0 → 1.0.0
-  Added principles: Safety First, Research-Driven Decisions, Modular Architecture, Audit Everything, Security by Design
-  Added sections: Technology Stack, Development Workflow
+  Version change: 1.0.0 → 1.1.0 (Minor - expanded Development Workflow, added Quality Gates)
+  Modified sections:
+    - Development Workflow: Added PR requirement, branch conventions, commit guidance
+    - Added: Quality Gates (pre-commit, pre-merge, release)
   Templates requiring updates:
     - .specify/templates/plan-template.md ✅ (compatible)
     - .specify/templates/spec-template.md ✅ (compatible)
@@ -87,12 +88,36 @@ Rationale: Compromised trading API keys can drain an account. Defense in depth i
 
 ## Development Workflow
 
-- All features are planned using the spec-kit workflow: constitution → specify → plan → tasks → implement
-- Each feature gets its own branch following the `###-feature-name` convention
-- Tests MUST pass before merging to main
-- Configuration changes that affect trading behavior MUST be reviewed before deployment
-- The system MUST support running entirely in paper mode with no code changes — switching to live is purely a configuration change (different API keys + `ALPACA_PAPER_TRADE=False`)
-- Secrets MUST be validated at startup: if required secrets are missing, the system MUST fail fast with a clear error
+- All work happens on feature branches, merged to `main` via pull request.
+- Follow the spec-kit workflow: specify → plan → tasks → implement.
+- Commit after each logical unit of work with a descriptive message.
+- Keep PRs focused — one feature or fix per PR.
+- Each feature branch follows the `###-feature-name` convention (e.g., `1-research-pipeline`).
+- Configuration changes that affect trading behavior MUST be reviewed before deployment.
+- The system MUST support running entirely in paper mode with no code changes — switching to live is purely a configuration change (different API keys + `ALPACA_PAPER_TRADE=False`).
+- Secrets MUST be validated at startup: if required secrets are missing, the system MUST fail fast with a clear error.
+
+## Quality Gates
+
+### Pre-Commit Requirements
+
+- Code MUST pass linting without errors
+- All existing tests MUST pass
+- No secrets or API keys in staged files
+
+### Pre-Merge Requirements
+
+- Pull request MUST be reviewed (human or automated)
+- PR MUST reference applicable constitution principles where relevant
+- All tests MUST pass (including paper trading integration tests if execution layer is touched)
+- No security warnings from static analysis
+- Changes to risk controls or execution layer MUST have explicit approval
+
+### Release Requirements
+
+- All quality gates satisfied
+- Version incremented per semantic versioning
+- CHANGELOG updated with user-facing changes
 
 ## Governance
 
@@ -106,4 +131,4 @@ Principles I (Safety First) and V (Security by Design) are elevated constraints 
 
 All PRs MUST verify compliance with these principles. Complexity MUST be justified — prefer simple, working solutions over elegant abstractions.
 
-**Version**: 1.0.0 | **Ratified**: 2026-02-16 | **Last Amended**: 2026-02-16
+**Version**: 1.1.0 | **Ratified**: 2026-02-16 | **Last Amended**: 2026-02-16
