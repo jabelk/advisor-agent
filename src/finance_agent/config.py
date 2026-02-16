@@ -15,6 +15,7 @@ _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
 class Settings:
     """Application settings loaded from environment variables."""
 
+    # Alpaca broker keys
     alpaca_paper_api_key: str = ""
     alpaca_paper_secret_key: str = ""
     alpaca_live_api_key: str = ""
@@ -22,6 +23,14 @@ class Settings:
     trading_mode: str = "paper"
     db_path: str = "data/finance_agent.db"
     log_level: str = "INFO"
+    # Research data source keys
+    anthropic_api_key: str = ""
+    finnhub_api_key: str = ""
+    edgar_identity: str = ""
+    stratechery_feed_url: str = ""
+    assemblyai_api_key: str = ""
+    earningscall_api_key: str = ""
+    research_data_dir: str = "research_data/"
     # Derived
     is_live: bool = field(init=False, default=False)
     warnings: list[str] = field(init=False, default_factory=list)
@@ -68,6 +77,30 @@ class Settings:
     def mode_label(self) -> str:
         return "LIVE MODE" if self.is_live else "PAPER MODE"
 
+    @property
+    def sec_edgar_available(self) -> bool:
+        return bool(self.edgar_identity)
+
+    @property
+    def finnhub_available(self) -> bool:
+        return bool(self.finnhub_api_key)
+
+    @property
+    def stratechery_available(self) -> bool:
+        return bool(self.stratechery_feed_url)
+
+    @property
+    def assemblyai_available(self) -> bool:
+        return bool(self.assemblyai_api_key)
+
+    @property
+    def earningscall_available(self) -> bool:
+        return bool(self.earningscall_api_key)
+
+    @property
+    def anthropic_available(self) -> bool:
+        return bool(self.anthropic_api_key)
+
 
 class ConfigError(Exception):
     """Raised when configuration is invalid or incomplete."""
@@ -98,6 +131,13 @@ def load_settings() -> Settings:
         trading_mode=os.environ.get("TRADING_MODE", "paper"),
         db_path=os.environ.get("DB_PATH", "data/finance_agent.db"),
         log_level=os.environ.get("LOG_LEVEL", "INFO"),
+        anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+        finnhub_api_key=os.environ.get("FINNHUB_API_KEY", ""),
+        edgar_identity=os.environ.get("EDGAR_IDENTITY", ""),
+        stratechery_feed_url=os.environ.get("STRATECHERY_FEED_URL", ""),
+        assemblyai_api_key=os.environ.get("ASSEMBLYAI_API_KEY", ""),
+        earningscall_api_key=os.environ.get("EARNINGSCALL_API_KEY", ""),
+        research_data_dir=os.environ.get("RESEARCH_DATA_DIR", "research_data/"),
     )
 
     return settings

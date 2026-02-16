@@ -29,9 +29,46 @@ Expected output:
 ```
 [PAPER MODE] Finance Agent v0.1.0
 Configuration: OK (all required settings present)
-Database: OK (finance_agent.db, schema version 1)
+Database: OK (finance_agent.db, schema version 2)
 Broker API: OK (account ACTIVE, buying power: $X,XXX.XX)
 ```
+
+## Research Pipeline
+
+The research layer ingests data from multiple sources, analyzes documents with Claude, and produces structured research signals.
+
+```bash
+# Add companies to your watchlist
+uv run finance-agent watchlist add NVDA
+uv run finance-agent watchlist add AAPL
+
+# Add notable investors to track
+uv run finance-agent investors add "Berkshire Hathaway" 0001067983
+
+# Run research ingestion and analysis
+uv run finance-agent research run
+
+# Run for a specific ticker or source
+uv run finance-agent research run --ticker NVDA --source sec
+
+# Query research signals
+uv run finance-agent signals NVDA --type sentiment
+uv run finance-agent signals NVDA --source sec_filing --since 2025-01-01
+
+# View company research profile
+uv run finance-agent profile NVDA
+```
+
+### Data Sources
+
+| Source | API Key Required | What it ingests |
+|--------|-----------------|-----------------|
+| SEC EDGAR | `EDGAR_IDENTITY` | 10-K, 10-Q, 8-K filings |
+| EarningsCall.biz | `EARNINGSCALL_API_KEY` | Earnings call transcripts with speaker attribution |
+| Finnhub | `FINNHUB_API_KEY` | Analyst ratings, earnings history, insider activity, news |
+| Acquired Podcast | None (RSS) | Episode metadata and notes |
+| Stratechery | `STRATECHERY_FEED_URL` | Analysis articles and daily updates |
+| 13F Holdings | `EDGAR_IDENTITY` | Institutional investor filings |
 
 ## Development
 
@@ -64,6 +101,13 @@ See [quickstart.md](specs/001-project-scaffolding/quickstart.md) for Docker and 
 | `ALPACA_LIVE_SECRET_KEY` | No | - | Live trading secret key |
 | `TRADING_MODE` | No | `paper` | `paper` or `live` |
 | `DB_PATH` | No | `data/finance_agent.db` | SQLite database path |
+| `RESEARCH_DATA_DIR` | No | `research_data` | Research artifact storage path |
+| `ANTHROPIC_API_KEY` | No | - | Claude API key for LLM analysis |
+| `EDGAR_IDENTITY` | No | - | SEC EDGAR identity (`Name email@example.com`) |
+| `FINNHUB_API_KEY` | No | - | Finnhub API key for market signals (free tier) |
+| `EARNINGSCALL_API_KEY` | No | - | EarningsCall.biz API key for transcripts |
+| `STRATECHERY_FEED_URL` | No | - | Stratechery premium RSS feed URL |
+| `ASSEMBLYAI_API_KEY` | No | - | AssemblyAI key for podcast transcription |
 | `LOG_LEVEL` | No | `INFO` | Logging level |
 
 ## Architecture

@@ -8,12 +8,15 @@ services:
     restart: unless-stopped
     volumes:
       - ./data:/app/data
+      - ./research_data:/app/research_data
     secrets:
       - alpaca_api_key
       - alpaca_secret_key
+      - anthropic_api_key
     environment:
       - TRADING_MODE=paper
       - DB_PATH=/app/data/finance_agent.db
+      - RESEARCH_DATA_DIR=/app/research_data
       - LOG_LEVEL=INFO
     healthcheck:
       test: ["CMD", "finance-agent", "health"]
@@ -27,3 +30,5 @@ secrets:
     file: ./secrets/alpaca_api_key.txt
   alpaca_secret_key:
     file: ./secrets/alpaca_secret_key.txt
+  anthropic_api_key:
+    file: ./secrets/anthropic_api_key.txt

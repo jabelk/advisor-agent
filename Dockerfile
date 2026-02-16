@@ -33,8 +33,8 @@ COPY --from=builder /app/migrations /app/migrations
 # Put venv on PATH
 ENV PATH="/app/.venv/bin:$PATH"
 
-# Create data directory for SQLite
-RUN mkdir -p /app/data
+# Create data directories for SQLite and research artifacts
+RUN mkdir -p /app/data /app/research_data
 
 # Entrypoint script reads Docker secrets and exports as env vars
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh

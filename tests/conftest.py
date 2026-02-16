@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
 from finance_agent.config import Settings
+from finance_agent.data.watchlist import add_company
 from finance_agent.db import get_connection, run_migrations
 
 
@@ -32,3 +34,30 @@ def mock_settings(tmp_path: Path) -> Settings:
         db_path=str(tmp_path / "test.db"),
         log_level="DEBUG",
     )
+
+
+@pytest.fixture
+def sample_company(tmp_db: sqlite3.Connection) -> dict[str, str | int | None]:
+    """Add NVDA to the watchlist and return the company dict."""
+    company_id = add_company(
+        tmp_db,
+        ticker="NVDA",
+        name="NVIDIA Corporation",
+        cik="0001045810",
+        sector="Technology",
+    )
+    return {
+        "id": company_id,
+        "ticker": "NVDA",
+        "name": "NVIDIA Corporation",
+        "cik": "0001045810",
+        "sector": "Technology",
+    }
+
+
+@pytest.fixture
+def mock_anthropic_client() -> MagicMock:
+    """Provide a mocked Anthropic client."""
+    client = MagicMock()
+    client.messages = MagicMock()
+    return client

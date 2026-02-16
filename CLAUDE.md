@@ -14,7 +14,7 @@ AI-powered day trading agent. See [Project Constitution](.specify/memory/constit
 
 - Python 3.12+, uv for packages, pytest for testing
 - Broker: Alpaca Markets (alpaca-py SDK + Alpaca MCP server)
-- Data: SEC EDGAR (edgartools), Finnhub (transcripts), Alpaca market data
+- Data: SEC EDGAR (edgartools), EarningsCall.biz (transcripts), Finnhub (market signals), Alpaca market data
 - Storage: SQLite + filesystem
 - All features via spec-kit: specify → plan → tasks → implement
 - Feature branches merged to `main` via PR
@@ -23,6 +23,9 @@ AI-powered day trading agent. See [Project Constitution](.specify/memory/constit
 ## Active Technologies
 - Python 3.12+ with type hints throughou + alpaca-py (>=0.43), httpx, python-dotenv (local dev only) (001-project-scaffolding)
 - SQLite (WAL mode, PRAGMA user_version migrations) (001-project-scaffolding)
+- Python 3.12+ (existing project) + edgartools>=5.16, finnhub-python>=2.4, earningscall>=1.4, anthropic>=0.45, feedparser>=6.0, beautifulsoup4>=4.12, pydantic>=2.0 (new); alpaca-py, httpx (existing) (002-research-ingestion)
+- SQLite (extends existing DB with 5 new tables) + filesystem for raw documents (`research_data/`) (002-research-ingestion)
 
 ## Recent Changes
+- 002-research-ingestion: Refactored Finnhub to free-tier market signals source; added EarningsCall.biz for transcripts
 - 001-project-scaffolding: Added Python 3.12+ with type hints throughou + alpaca-py (>=0.43), httpx, python-dotenv (local dev only)
