@@ -1,7 +1,7 @@
 <!-- Sync Impact Report
-  Version change: 1.1.0 → 1.1.1 (Patch - corrected env var reference in Development Workflow)
+  Version change: 1.1.1 → 1.2.0 (Minor - added research data source dependencies to Technology Stack)
   Modified sections:
-    - Development Workflow: Fixed ALPACA_PAPER_TRADE=False → TRADING_MODE=live (aligns with data-model.md)
+    - Technology Stack: Added finnhub-python, feedparser, beautifulsoup4 to Data Sources; added LLM SDK entry for anthropic; expanded Storage to include research signals and article artifacts
   Templates requiring updates: None
   Follow-up TODOs: None
 -->
@@ -76,8 +76,9 @@ Rationale: Compromised trading API keys can drain an account. Defense in depth i
 - **Package Manager**: uv (Astral)
 - **Broker**: Alpaca Markets (paper + live), accessed via official alpaca-py SDK and Alpaca MCP server
 - **LLM**: Claude (via Anthropic API or MCP), with support for swapping providers
-- **Data Sources**: SEC EDGAR (free, via edgartools), Finnhub (earnings transcripts), Alpaca market data (included)
-- **Storage**: SQLite for structured data (trades, positions, audit log), filesystem for research artifacts (filings, transcripts)
+- **Data Sources**: SEC EDGAR (free, via edgartools), Finnhub (earnings transcripts, via finnhub-python), Alpaca market data (included), RSS feeds (via feedparser + beautifulsoup4)
+- **LLM SDK**: anthropic (Python SDK) for structured analysis with Pydantic output models
+- **Storage**: SQLite for structured data (trades, positions, audit log, research signals), filesystem for research artifacts (filings, transcripts, podcast transcripts, articles)
 - **Runtime**: Intel NUC (home server), Docker for isolation, NATS available for messaging if needed
 - **CI**: GitHub Actions (private runner already available on NUC)
 - **Testing**: pytest, with paper trading integration tests
@@ -127,4 +128,4 @@ Principles I (Safety First) and V (Security by Design) are elevated constraints 
 
 All PRs MUST verify compliance with these principles. Complexity MUST be justified — prefer simple, working solutions over elegant abstractions.
 
-**Version**: 1.1.1 | **Ratified**: 2026-02-16 | **Last Amended**: 2026-02-16
+**Version**: 1.2.0 | **Ratified**: 2026-02-16 | **Last Amended**: 2026-02-16

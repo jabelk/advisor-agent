@@ -21,6 +21,9 @@ build/
 # Data directory (runtime, top-level only)
 /data/
 
+# Research data (raw documents, not in git)
+research_data/
+
 # IDE
 .vscode/
 .idea/

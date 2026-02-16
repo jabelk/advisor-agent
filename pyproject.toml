@@ -6,7 +6,14 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "alpaca-py>=0.43",
+    "anthropic>=0.45",
+    "beautifulsoup4>=4.12",
+    "earningscall>=1.4",
+    "edgartools>=5.16",
+    "feedparser>=6.0",
+    "finnhub-python>=2.4",
     "httpx",
+    "pydantic>=2.0",
 ]
 
 [project.scripts]
@@ -37,6 +44,11 @@ python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = ["edgar.*", "edgar", "earningscall.*", "earningscall", "finnhub.*", "finnhub", "feedparser.*", "feedparser"]
+ignore_missing_imports = true
+follow_imports = "skip"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
