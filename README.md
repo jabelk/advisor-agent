@@ -29,8 +29,30 @@ Expected output:
 ```
 [PAPER MODE] Finance Agent v0.1.0
 Configuration: OK (all required settings present)
-Database: OK (finance_agent.db, schema version 2)
+Database: OK (finance_agent.db, schema version 3)
 Broker API: OK (account ACTIVE, buying power: $X,XXX.XX)
+Market Data API: OK (IEX feed)
+```
+
+## Market Data
+
+Fetch and store historical price bars, get real-time snapshots, and compute technical indicators.
+
+```bash
+# Fetch historical bars for all watchlist companies
+uv run finance-agent market fetch
+
+# Fetch for a specific ticker
+uv run finance-agent market fetch --ticker AAPL
+
+# Get real-time price snapshot
+uv run finance-agent market snapshot AAPL NVDA
+
+# View stored data coverage
+uv run finance-agent market status
+
+# Recompute technical indicators
+uv run finance-agent market indicators
 ```
 
 ## Research Pipeline
@@ -114,7 +136,8 @@ See [quickstart.md](specs/001-project-scaffolding/quickstart.md) for Docker and 
 
 The codebase follows a modular layered architecture:
 
-- **data/** - Market data, filings, transcripts ingestion
+- **data/** - Filings, transcripts, news ingestion
+- **market/** - Historical bars, real-time snapshots, technical indicators
 - **research/** - LLM-powered analysis and signal generation
 - **engine/** - Decision rules and trade proposal generation
 - **execution/** - Broker API integration (Alpaca)

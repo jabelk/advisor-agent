@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import sqlite3
 import sys
+from datetime import UTC
 from pathlib import Path
 
 from finance_agent import __version__
@@ -78,6 +79,33 @@ def main(argv: list[str] | None = None) -> None:
     profile_parser = subparsers.add_parser("profile", help="Show company research profile")
     profile_parser.add_argument("ticker", help="Stock ticker symbol")
 
+    # Market data commands
+    market_parser = subparsers.add_parser("market", help="Market data operations")
+    market_sub = market_parser.add_subparsers(dest="market_command")
+
+    fetch_parser = market_sub.add_parser("fetch", help="Fetch historical bars")
+    fetch_parser.add_argument("--ticker", help="Limit to specific ticker")
+    fetch_parser.add_argument(
+        "--timeframe", choices=["day", "hour"],
+        help="Limit to 'day' or 'hour' (fetches both if omitted)",
+    )
+    fetch_parser.add_argument(
+        "--full", action="store_true",
+        help="Force full re-fetch instead of incremental",
+    )
+
+    snapshot_parser = market_sub.add_parser(
+        "snapshot", help="Get real-time price snapshot",
+    )
+    snapshot_parser.add_argument("tickers", nargs="+", help="Ticker symbols")
+
+    market_sub.add_parser("status", help="Show market data status")
+
+    indicators_parser = market_sub.add_parser(
+        "indicators", help="Compute technical indicators",
+    )
+    indicators_parser.add_argument("--ticker", help="Limit to specific ticker")
+
     args = parser.parse_args(argv)
 
     if args.command == "version":
@@ -94,6 +122,8 @@ def main(argv: list[str] | None = None) -> None:
         cmd_signals(args)
     elif args.command == "profile":
         cmd_profile(args)
+    elif args.command == "market":
+        cmd_market(args)
     else:
         parser.print_help()
         sys.exit(1)
@@ -208,11 +238,29 @@ def cmd_health() -> None:
         else:
             print(f"Broker API: FAIL ({error_msg})")
 
+    # --- Market Data API ---
+    market_data_ok = False
+    try:
+        from alpaca.data.historical import StockHistoricalDataClient
+        from alpaca.data.requests import StockSnapshotRequest
+
+        data_client = StockHistoricalDataClient(
+            api_key=settings.active_api_key,
+            secret_key=settings.active_secret_key,
+        )
+        request = StockSnapshotRequest(symbol_or_symbols=["AAPL"])
+        data_client.get_stock_snapshot(request)
+        print("Market Data API: OK (IEX feed)")
+        market_data_ok = True
+    except Exception as e:
+        print(f"Market Data API: FAIL ({e})")
+
     if audit:
         audit.log("health_check", "cli", {
             "config_ok": True,
             "db_ok": db_ok,
             "broker_ok": broker_ok,
+            "market_data_ok": market_data_ok,
         })
 
     if conn:
@@ -579,5 +627,357 @@ def cmd_profile(args: argparse.Namespace) -> None:
         for st, label in source_labels.items():
             count = source_breakdown.get(st, 0)
             print(f"  {label:<24}{count} signals")
+    finally:
+        close_connection(conn)
+
+
+def cmd_market(args: argparse.Namespace) -> None:
+    """Handle market data subcommands."""
+    if args.market_command == "fetch":
+        _cmd_market_fetch(args)
+    elif args.market_command == "snapshot":
+        _cmd_market_snapshot(args)
+    elif args.market_command == "status":
+        _cmd_market_status()
+    elif args.market_command == "indicators":
+        _cmd_market_indicators(args)
+    else:
+        print("Usage: finance-agent market {fetch|snapshot|status|indicators}")
+        sys.exit(1)
+
+
+def _cmd_market_fetch(args: argparse.Namespace) -> None:
+    """Fetch historical bars for watchlist companies."""
+    from datetime import datetime
+
+    from finance_agent.data.watchlist import (
+        get_company_by_ticker,
+        list_companies,
+    )
+    from finance_agent.db import close_connection
+    from finance_agent.market.bars import fetch_bars
+    from finance_agent.market.client import RateLimiter, create_data_client
+    from finance_agent.market.indicators import compute_and_persist_indicators
+
+    conn, audit, settings = _get_db_and_audit()
+    rate_limiter = RateLimiter()
+
+    try:
+        data_client = create_data_client(
+            settings.active_api_key, settings.active_secret_key,
+        )
+
+        # Determine tickers
+        if args.ticker:
+            ticker = args.ticker.upper()
+            company = get_company_by_ticker(conn, ticker)
+            if not company:
+                print(f"Error: {ticker} is not on the watchlist")
+                sys.exit(1)
+            companies = [company]
+        else:
+            companies = list_companies(conn)
+            if not companies:
+                print(
+                    "No companies on watchlist. "
+                    "Add one with: finance-agent watchlist add <TICKER>"
+                )
+                sys.exit(1)
+
+        timeframes = (
+            [args.timeframe] if args.timeframe else ["day", "hour"]
+        )
+        full = getattr(args, "full", False)
+
+        tickers_str = ", ".join(c["ticker"] for c in companies)
+        now_str = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        print(
+            f"Market Data Fetch — {now_str}\n"
+            f"Watchlist: {len(companies)} companies ({tickers_str}) "
+            f"| Timeframes: {', '.join(timeframes)}"
+        )
+        print()
+
+        total_bars = 0
+        total_indicators = 0
+        errors = 0
+        start_time = datetime.now(UTC)
+
+        for company in companies:
+            ticker = str(company["ticker"])
+            company_id = int(company["id"])  # type: ignore[arg-type]
+            print(f"{ticker}:")
+
+            for tf in timeframes:
+                # Record fetch start
+                fetch_id = _record_fetch_start(conn, ticker, tf)
+
+                try:
+                    count = fetch_bars(
+                        conn, data_client, ticker, company_id,
+                        tf, full=full, rate_limiter=rate_limiter,
+                    )
+                    # Get date range of new bars
+                    _record_fetch_complete(
+                        conn, fetch_id, count,
+                    )
+                    total_bars += count
+                    print(f"  {tf}: {count} new bars")
+                except Exception as e:
+                    _record_fetch_failed(conn, fetch_id, str(e))
+                    errors += 1
+                    print(f"  {tf}: ERROR — {e}")
+
+            # Compute indicators after fetching bars
+            try:
+                indicators = compute_and_persist_indicators(
+                    conn, ticker, company_id, "day",
+                )
+                if indicators:
+                    parts = []
+                    for ind_type, value in sorted(indicators.items()):
+                        label = ind_type.upper().replace("_", "-")
+                        parts.append(f"{label}={value:.2f}")
+                    print(f"  Indicators: {' '.join(parts)}")
+                    total_indicators += len(indicators)
+            except Exception as e:
+                print(f"  Indicators: ERROR — {e}")
+
+        duration = (
+            datetime.now(UTC) - start_time
+        ).total_seconds()
+        print()
+        print("Summary:")
+        print(f"  Bars: {total_bars} total new")
+        print(f"  Indicators: {total_indicators} updated")
+        print(f"  Errors: {errors}")
+        print(f"  Duration: {duration:.0f}s")
+
+        audit.log("market_fetch", "cli", {
+            "tickers": [str(c["ticker"]) for c in companies],
+            "timeframes": timeframes,
+            "total_bars": total_bars,
+            "errors": errors,
+            "duration_seconds": round(duration, 1),
+        })
+
+        sys.exit(1 if errors == len(companies) else 0)
+    finally:
+        close_connection(conn)
+
+
+def _record_fetch_start(
+    conn: sqlite3.Connection, ticker: str, timeframe: str,
+) -> int:
+    """Insert a market_data_fetch record and return its ID."""
+    cursor = conn.execute(
+        "INSERT INTO market_data_fetch (ticker, timeframe) VALUES (?, ?)",
+        (ticker, timeframe),
+    )
+    conn.commit()
+    assert cursor.lastrowid is not None
+    return cursor.lastrowid
+
+
+def _record_fetch_complete(
+    conn: sqlite3.Connection, fetch_id: int, bars_fetched: int,
+) -> None:
+    """Mark a fetch as complete."""
+    conn.execute(
+        "UPDATE market_data_fetch SET status='complete', "
+        "completed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), "
+        "bars_fetched=? WHERE id=?",
+        (bars_fetched, fetch_id),
+    )
+    conn.commit()
+
+
+def _record_fetch_failed(
+    conn: sqlite3.Connection, fetch_id: int, error: str,
+) -> None:
+    """Mark a fetch as failed."""
+    conn.execute(
+        "UPDATE market_data_fetch SET status='failed', "
+        "completed_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), "
+        "error_message=? WHERE id=?",
+        (error, fetch_id),
+    )
+    conn.commit()
+
+
+def _cmd_market_snapshot(args: argparse.Namespace) -> None:
+    """Get real-time price snapshots."""
+    from finance_agent.db import close_connection
+    from finance_agent.market.client import create_data_client
+    from finance_agent.market.snapshot import get_snapshots
+
+    _conn, _audit, settings = _get_db_and_audit()
+
+    try:
+        data_client = create_data_client(
+            settings.active_api_key, settings.active_secret_key,
+        )
+        tickers = [t.upper() for t in args.tickers]
+        snapshots = get_snapshots(data_client, tickers)
+
+        for ticker in tickers:
+            snap = snapshots.get(ticker)
+            if not snap:
+                print(f"{ticker}  — no data available")
+                continue
+
+            price = snap.get("last_price")
+            price_str = f"${price:.2f}" if price else "N/A"
+            bid = snap.get("bid_price")
+            bid_sz = snap.get("bid_size", 0)
+            ask = snap.get("ask_price")
+            ask_sz = snap.get("ask_size", 0)
+            vol = snap.get("volume")
+            vwap = snap.get("vwap")
+
+            bid_str = (
+                f"bid ${bid:.2f} x {bid_sz}" if bid else "bid N/A"
+            )
+            ask_str = (
+                f"ask ${ask:.2f} x {ask_sz}" if ask else "ask N/A"
+            )
+            vol_str = f"vol {vol / 1e6:.1f}M" if vol else "vol N/A"
+            vwap_str = f"vwap ${vwap:.2f}" if vwap else ""
+
+            print(
+                f"{ticker}  {price_str}  {bid_str}  "
+                f"{ask_str}  {vol_str}  {vwap_str}"
+            )
+
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    finally:
+        close_connection(_conn)
+
+
+def _cmd_market_status() -> None:
+    """Show stored market data summary."""
+    from finance_agent.db import close_connection
+    from finance_agent.market.bars import get_latest_indicators, get_market_data_status
+
+    conn, _audit, _settings = _get_db_and_audit()
+
+    try:
+        status = get_market_data_status(conn)
+
+        if not status:
+            print("Market Data Status:")
+            print()
+            print(
+                "  No market data stored. "
+                "Fetch with: finance-agent market fetch"
+            )
+            return
+
+        print("Market Data Status:")
+        print()
+        print(
+            f"  {'Ticker':<9}{'Timeframe':<12}{'Bars':>6}"
+            f"   {'From':<13}{'To':<13}{'Last Fetch'}"
+        )
+        total_bars = 0
+        tickers_seen: set[str] = set()
+        for row in status:
+            ticker = row["ticker"]
+            tickers_seen.add(str(ticker))
+            tf = row["timeframe"]
+            bc = row["bar_count"]
+            total_bars += int(bc)  # type: ignore[arg-type]
+            from_d = str(row["from_date"] or "")[:10]
+            to_d = str(row["to_date"] or "")[:10]
+            lf = str(row["last_fetch"] or "never")[:16]
+            print(
+                f"  {ticker:<9}{tf:<12}{bc:>6}"
+                f"   {from_d:<13}{to_d:<13}{lf}"
+            )
+
+        # Latest indicators
+        indicators = get_latest_indicators(conn)
+        if indicators:
+            print()
+            print("Latest Indicators:")
+            # Group by ticker
+            by_ticker: dict[str, dict[str, float]] = {}
+            for ind in indicators:
+                t = str(ind["ticker"])
+                it = str(ind["indicator_type"])
+                by_ticker.setdefault(t, {})[it] = float(ind["value"])  # type: ignore[arg-type]
+
+            header = (
+                f"  {'Ticker':<9}{'SMA-20':>10}{'SMA-50':>10}"
+                f"{'RSI-14':>10}{'VWAP':>12}"
+            )
+            print(header)
+            for t in sorted(by_ticker.keys()):
+                vals = by_ticker[t]
+                sma20 = f"{vals['sma_20']:.2f}" if "sma_20" in vals else "—"
+                sma50 = f"{vals['sma_50']:.2f}" if "sma_50" in vals else "—"
+                rsi = f"{vals['rsi_14']:.1f}" if "rsi_14" in vals else "—"
+                vwap = f"{vals['vwap']:.2f}" if "vwap" in vals else "—"
+                print(
+                    f"  {t:<9}{sma20:>10}{sma50:>10}"
+                    f"{rsi:>10}{vwap:>12}"
+                )
+
+        print()
+        print(
+            f"Total: {total_bars:,} bars "
+            f"across {len(tickers_seen)} tickers"
+        )
+    finally:
+        close_connection(conn)
+
+
+def _cmd_market_indicators(args: argparse.Namespace) -> None:
+    """Compute technical indicators for watchlist companies."""
+    from finance_agent.data.watchlist import (
+        get_company_by_ticker,
+        list_companies,
+    )
+    from finance_agent.db import close_connection
+    from finance_agent.market.indicators import compute_and_persist_indicators
+
+    conn, _audit, _settings = _get_db_and_audit()
+
+    try:
+        if args.ticker:
+            ticker = args.ticker.upper()
+            company = get_company_by_ticker(conn, ticker)
+            if not company:
+                print(f"Error: {ticker} is not on the watchlist")
+                sys.exit(1)
+            companies = [company]
+        else:
+            companies = list_companies(conn)
+            if not companies:
+                print(
+                    "No companies on watchlist. "
+                    "Add one with: finance-agent watchlist add <TICKER>"
+                )
+                sys.exit(1)
+
+        print("Technical Indicators:")
+        print()
+
+        for company in companies:
+            ticker = str(company["ticker"])
+            company_id = int(company["id"])  # type: ignore[arg-type]
+            indicators = compute_and_persist_indicators(
+                conn, ticker, company_id, "day",
+            )
+            if indicators:
+                parts = []
+                for ind_type, value in sorted(indicators.items()):
+                    label = ind_type.upper().replace("_", "-")
+                    parts.append(f"{label}={value:.2f}")
+                print(f"  {ticker}: {' '.join(parts)}")
+            else:
+                print(f"  {ticker}: no bars available")
     finally:
         close_connection(conn)
