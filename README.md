@@ -1,6 +1,6 @@
 # Finance Agent
 
-AI-powered day trading agent using Alpaca Markets.
+Research-powered investment system using Alpaca Markets.
 
 ## Prerequisites
 
@@ -27,70 +27,10 @@ uv run finance-agent health
 
 Expected output:
 ```
-[PAPER MODE] Finance Agent v0.1.0
+[PAPER MODE] Finance Agent v0.7.0
 Configuration: OK (all required settings present)
-Database: OK (finance_agent.db, schema version 4)
-Broker API: OK (account ACTIVE, buying power: $X,XXX.XX)
-Market Data API: OK (IEX feed)
-Decision Engine: OK (kill switch: OFF (normal), schema v4)
-```
-
-## Decision Engine
-
-Generate trade proposals from research signals and market data, with risk controls and human-in-the-loop approval.
-
-```bash
-# Generate proposals for all watchlist companies
-uv run finance-agent engine generate
-
-# Generate for a specific ticker (dry run)
-uv run finance-agent engine generate --ticker NVDA --dry-run
-
-# Review and approve/reject pending proposals
-uv run finance-agent engine review
-
-# Toggle kill switch (halts all generation and approval)
-uv run finance-agent engine killswitch on
-uv run finance-agent engine killswitch off
-
-# View and update risk settings
-uv run finance-agent engine risk
-uv run finance-agent engine risk-set max_position_pct 0.15
-
-# View proposal history and engine status
-uv run finance-agent engine history --ticker NVDA --status approved
-uv run finance-agent engine status
-```
-
-### Risk Controls
-
-| Setting | Default | Range | Description |
-|---------|---------|-------|-------------|
-| `max_position_pct` | 10% | 1-50% | Max single position as % of portfolio |
-| `max_daily_loss_pct` | 5% | 1-20% | Max daily loss before halting |
-| `max_trades_per_day` | 20 | 1-100 | Max filled orders per day |
-| `max_positions_per_symbol` | 2 | 1-10 | Max concurrent positions in one symbol |
-| `min_confidence_threshold` | 0.45 | 0.1-0.9 | Min score to generate a proposal |
-
-## Market Data
-
-Fetch and store historical price bars, get real-time snapshots, and compute technical indicators.
-
-```bash
-# Fetch historical bars for all watchlist companies
-uv run finance-agent market fetch
-
-# Fetch for a specific ticker
-uv run finance-agent market fetch --ticker AAPL
-
-# Get real-time price snapshot
-uv run finance-agent market snapshot AAPL NVDA
-
-# View stored data coverage
-uv run finance-agent market status
-
-# Recompute technical indicators
-uv run finance-agent market indicators
+Database: OK (finance_agent.db, schema version 6)
+Research Pipeline: OK (last run: 2026-02-17T14:30)
 ```
 
 ## Research Pipeline
@@ -174,11 +114,9 @@ See [quickstart.md](specs/001-project-scaffolding/quickstart.md) for Docker and 
 
 The codebase follows a modular layered architecture:
 
-- **data/** - Filings, transcripts, news ingestion
-- **market/** - Historical bars, real-time snapshots, technical indicators
-- **research/** - LLM-powered analysis and signal generation
-- **engine/** - Decision rules and trade proposal generation
-- **execution/** - Broker API integration (Alpaca)
+- **data/** - Filings, transcripts, news ingestion from multiple sources
+- **research/** - LLM-powered analysis and structured signal generation
+- **safety/** - Kill switch and risk limit storage (guardrails for future execution)
 - **audit/** - Append-only event logging
 
 See the [project constitution](.specify/memory/constitution.md) for guiding principles.

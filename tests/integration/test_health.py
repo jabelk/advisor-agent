@@ -1,4 +1,4 @@
-"""Integration test for the health command against paper trading API.
+"""Integration test for the health command.
 
 Requires ALPACA_PAPER_API_KEY and ALPACA_PAPER_SECRET_KEY in environment.
 """
@@ -31,7 +31,17 @@ class TestHealthCommand:
         assert "[PAPER MODE]" in result.stdout
         assert "Configuration: OK" in result.stdout
         assert "Database: OK" in result.stdout
-        assert "Broker API: OK" in result.stdout
+        assert "Research Pipeline:" in result.stdout
+
+    def test_health_no_removed_components(self) -> None:
+        result = subprocess.run(
+            ["uv", "run", "finance-agent", "health"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert "Decision Engine" not in result.stdout
+        assert "Market Data" not in result.stdout
 
     def test_health_shows_version(self) -> None:
         result = subprocess.run(

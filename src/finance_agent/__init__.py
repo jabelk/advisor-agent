@@ -1,3 +1,3 @@
-"""Finance Agent: AI-powered day trading agent using Alpaca Markets."""
+"""Finance Agent: Research-powered investment system using Alpaca Markets."""
 
-__version__ = "0.1.0"
+__version__ = "0.7.0"

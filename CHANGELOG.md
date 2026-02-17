@@ -4,6 +4,37 @@ All notable changes to the finance-agent project will be documented in this file
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.7.0] - 2026-02-17
+
+### Removed
+
+- Execution layer (`execution/` module) — replaced by Alpaca MCP server
+- Decision engine (`engine/` module, ~1,800 lines) — trade proposals now via conversational Claude
+- Market data layer (`market/` module, ~700 lines) — replaced by Alpaca MCP + QuantConnect MCP
+- Engine CLI commands: generate, review, killswitch, risk, risk-set, history, status
+- Market CLI commands: fetch, snapshot, status, indicators
+- Engine/market health checks from `finance-agent health`
+- 8 database tables: price_bar, technical_indicator, market_data_fetch, trade_proposal, proposal_source, risk_check_result, broker_order, position_snapshot
+- ~2,200 lines of engine/market test code
+
+### Added
+
+- Safety module (`safety/guards.py`) — kill switch and risk limit storage extracted from engine
+- Database migration 006: renames engine_state → safety_state, drops 8 unused tables
+- Migration 002 SQL file (previously only existed as code-level migration)
+- 14 unit tests for safety module (kill switch, risk settings CRUD, validation)
+- 3 migration verification tests in test_db.py
+
+### Changed
+
+- CLI description updated to "Research-powered investment system"
+- Health check now validates: configuration, database, research pipeline (no broker/market/engine checks)
+- Architecture simplified from 5 layers to 3: Data Ingestion → Research/Analysis → Audit (+ Safety guardrails)
+- README rewritten for research-first architecture
+- Constitution updated to v1.4.0 (safety, architecture, audit sections aligned with cleanup)
+- `__init__.py` version bumped to 0.7.0
+- Database schema version 6 (was 4)
+
 ## [0.4.0] - 2026-02-16
 
 ### Added

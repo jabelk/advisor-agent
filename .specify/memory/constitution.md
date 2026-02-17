@@ -1,10 +1,11 @@
 <!-- Sync Impact Report
-  Version change: 1.2.0 → 1.3.0 (Minor - architecture pivot to research-first, human-decides system)
+  Version change: 1.3.0 → 1.4.0 (Minor - align constitution with 007-architecture-cleanup)
   Modified sections:
-    - Core Principles: Updated II (Research-Driven) to emphasize conversational analysis and human decisions
-    - Core Principles: Updated III (Modular Architecture) to reflect MCP-based execution and n8n orchestration
-    - Technology Stack: Added n8n, Claude Agent SDK, FRED, Tiingo, Reddit/PRAW, StockTwits, sqlite-vec, ntfy.sh, FastMCP
-    - Technology Stack: Marked Alpaca MCP as primary execution path alongside alpaca-py
+    - Core Principles I: Updated Safety First to reflect safety module (storage only, no execution layer)
+    - Core Principles III: Updated architecture layers to match current 3-layer + safety structure
+    - Core Principles IV: Updated Audit to remove execution-specific log items
+    - Technology Stack: Updated Broker description — alpaca-py for data API, MCP for future trading
+    - Quality Gates: Removed references to execution layer
   Templates requiring updates: None
   Follow-up TODOs: None
 -->
@@ -15,13 +16,15 @@
 
 ### I. Safety First (NON-NEGOTIABLE)
 
-All trading operations MUST default to paper trading mode. Live trading MUST require explicit human approval for every order until the operator explicitly enables auto-execution for a narrowly scoped strategy class. The system MUST enforce hard limits at the execution layer:
+All trading operations MUST default to paper trading mode. Live trading MUST require explicit human approval for every order. The system MUST persist safety guardrails in the database:
 
-- Maximum position size: configurable per-symbol and as percentage of portfolio (default 10%)
-- Maximum daily loss: configurable dollar amount and percentage (default 5% of portfolio)
+- Kill switch: a single flag that, when active, signals that all trading should be halted
+- Maximum position size: configurable as percentage of portfolio (default 10%)
+- Maximum daily loss: configurable as percentage of portfolio (default 5%)
 - Maximum trades per day: configurable cap (default 20)
-- Kill switch: a single flag MUST immediately halt all order placement and cancel open orders
-- Only limit orders by default; market orders MUST require explicit opt-in
+- Maximum positions per symbol: configurable cap (default 2)
+
+These limits are stored in the `safety_state` table and enforced at the point of execution (currently via human review; future execution layers MUST check these before placing orders).
 
 Rationale: This is a learning/experimentation platform with real money. Catastrophic loss prevention is more important than capturing every opportunity.
 
@@ -42,14 +45,14 @@ Rationale: LLMs hallucinate. Financial decisions based on hallucinated data lose
 
 The system MUST be composed of independent, swappable layers:
 
-- **Data Ingestion**: Fetches and stores market data, filings, transcripts, news, social sentiment, macro indicators
-- **Research/Analysis**: LLM-powered analysis of ingested data, produces structured signals and multi-level summaries
-- **Decision Support**: Presents synthesized research to human via Claude Desktop/MCP; human decides
-- **Execution**: Broker API calls via Alpaca MCP server (interactive) or alpaca-py SDK (programmatic)
-- **Orchestration**: n8n schedules ingestion, triggers analysis, sends notifications
+- **Data Ingestion**: Fetches and stores filings, transcripts, news, market signals from multiple sources
+- **Research/Analysis**: LLM-powered analysis of ingested data, produces structured signals
+- **Safety**: Kill switch and risk limit storage (guardrails for any future execution layer)
 - **Logging/Audit**: Records everything across all layers
 
-Each layer communicates through well-defined interfaces. Swapping the broker (Alpaca to IBKR), the LLM (Claude to another model), or the data source MUST NOT require changes to other layers.
+Decision support and execution are handled externally — the human reviews research via Claude Desktop/MCP and places trades via Alpaca's interface or MCP server. Future layers (orchestration via n8n, automated execution) can be added without modifying existing code.
+
+Each layer communicates through well-defined interfaces. Swapping the LLM (Claude to another model) or the data source MUST NOT require changes to other layers.
 
 **Don't build what exists**: Use MCP servers, n8n workflows, and existing tools. Only write custom code for what's truly unique to this project. Every line of plumbing code maintained is context that Claude Code can't use for research innovation.
 
@@ -57,13 +60,14 @@ Rationale: This is an evolving experiment run by a solo developer coding through
 
 ### IV. Audit Everything
 
-Every signal, decision, order intent, order response, and position change MUST be logged with timestamps to an append-only local store. Logs MUST include:
+Every signal, decision, and safety state change MUST be logged with timestamps to an append-only local store. Logs MUST include:
 
-- Data source references (which filing, which transcript, which price bar)
-- LLM prompts and responses that informed the decision
-- Risk check results (pass/fail with parameter values)
-- Order details (symbol, side, qty, type, time-in-force, status)
-- Execution results (fill price, fill qty, rejection reason if applicable)
+- Data source references (which filing, which transcript, which market signal)
+- LLM prompts and responses that informed the analysis
+- Safety state changes (kill switch toggles, risk setting updates)
+- Research pipeline runs (sources ingested, signals generated, errors)
+
+When an execution layer is added in the future, it MUST also log: order details, risk check results, and execution results.
 
 Rationale: Without an audit trail, you cannot debug bad trades, improve strategies, or understand what went wrong.
 
@@ -83,7 +87,7 @@ Rationale: Compromised trading API keys can drain an account. Defense in depth i
 
 - **Language**: Python 3.12+ with type hints throughout
 - **Package Manager**: uv (Astral)
-- **Broker**: Alpaca Markets (paper + live), accessed via Alpaca MCP server (interactive) and alpaca-py SDK (programmatic)
+- **Broker**: Alpaca Markets (paper + live), accessed via Alpaca MCP server (interactive trading); alpaca-py SDK for market data API
 - **LLM**: Claude (via Anthropic API, MCP, or Claude Agent SDK), with support for swapping providers
 - **Agent Framework**: Claude Agent SDK (Python) for autonomous research agents
 - **Data Sources**: SEC EDGAR (edgartools — filings, Form 4, 13F), Finnhub (market signals, news), Tiingo (ticker-tagged news), FRED (macro indicators via fredapi), RSS feeds (feedparser), Reddit (PRAW), StockTwits (REST API), Alpaca market data
@@ -119,9 +123,9 @@ Rationale: Compromised trading API keys can drain an account. Defense in depth i
 
 - Pull request MUST be reviewed (human or automated)
 - PR MUST reference applicable constitution principles where relevant
-- All tests MUST pass (including paper trading integration tests if execution layer is touched)
+- All tests MUST pass (including paper trading integration tests if broker-facing code is touched)
 - No security warnings from static analysis
-- Changes to risk controls or execution layer MUST have explicit approval
+- Changes to safety module (kill switch, risk limits) MUST have explicit approval
 
 ### Release Requirements
 
@@ -141,4 +145,4 @@ Principles I (Safety First) and V (Security by Design) are elevated constraints 
 
 All PRs MUST verify compliance with these principles. Complexity MUST be justified — prefer simple, working solutions over elegant abstractions.
 
-**Version**: 1.3.0 | **Ratified**: 2026-02-16 | **Last Amended**: 2026-02-17
+**Version**: 1.4.0 | **Ratified**: 2026-02-16 | **Last Amended**: 2026-02-17
