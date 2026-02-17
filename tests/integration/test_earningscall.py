@@ -6,13 +6,39 @@ import os
 
 import pytest
 
-pytestmark = pytest.mark.skipif(
+
+class TestEarningsCallDemo:
+    """Tests that work in demo mode (no API key required, AAPL/MSFT only)."""
+
+    def test_get_aapl_company(self) -> None:
+        """Verify get_company returns a Company for AAPL in demo mode."""
+        from earningscall import get_company
+
+        company = get_company("aapl")
+        assert company is not None
+
+    def test_aapl_transcript_level1(self) -> None:
+        """Verify we can fetch an AAPL transcript at level=1 in demo mode."""
+        from earningscall import get_company
+
+        company = get_company("aapl")
+        assert company is not None
+
+        # Try a known recent quarter — demo mode may restrict date range
+        transcript = company.get_transcript(year=2024, quarter=4, level=1)
+        if transcript is not None:
+            has_text = hasattr(transcript, "text") and transcript.text
+            has_speakers = hasattr(transcript, "speakers") and transcript.speakers
+            assert has_text or has_speakers, "Transcript should have text or speakers"
+
+
+@pytest.mark.skipif(
     not os.environ.get("EARNINGSCALL_API_KEY"),
-    reason="EARNINGSCALL_API_KEY not set — skipping EarningsCall integration test",
+    reason="EARNINGSCALL_API_KEY not set — skipping paid-tier tests",
 )
+class TestEarningsCallPaid:
+    """Tests that require a paid API key for full access."""
 
-
-class TestEarningsCallIntegration:
     def test_get_aapl_transcript(self) -> None:
         """Verify we can fetch an AAPL earnings transcript."""
         import earningscall
@@ -21,11 +47,9 @@ class TestEarningsCallIntegration:
         company = earningscall.get_company("AAPL")
         assert company is not None
 
-        # Try to get a recent transcript (Q4 2024 should be available)
         transcript = company.get_transcript(year=2024, quarter=4, level=1)
         assert transcript is not None
 
-        # Should have text content
         has_text = hasattr(transcript, "text") and transcript.text
         has_speakers = hasattr(transcript, "speakers") and transcript.speakers
         assert has_text or has_speakers, "Transcript should have text or speakers"
