@@ -79,6 +79,34 @@ def main(argv: list[str] | None = None) -> None:
     profile_parser = subparsers.add_parser("profile", help="Show company research profile")
     profile_parser.add_argument("ticker", help="Stock ticker symbol")
 
+    # Engine commands
+    engine_parser = subparsers.add_parser("engine", help="Decision engine operations")
+    engine_sub = engine_parser.add_subparsers(dest="engine_command")
+
+    gen_parser = engine_sub.add_parser("generate", help="Generate trade proposals")
+    gen_parser.add_argument("--ticker", help="Limit to specific ticker")
+    gen_parser.add_argument("--dry-run", action="store_true", help="Preview without saving")
+
+    review_parser = engine_sub.add_parser("review", help="Review pending proposals")
+    review_parser.add_argument("--ticker", help="Filter by ticker")
+
+    ks_parser = engine_sub.add_parser("killswitch", help="Toggle kill switch")
+    ks_parser.add_argument("action", choices=["on", "off"], help="Activate or deactivate")
+
+    engine_sub.add_parser("risk", help="View risk control settings")
+
+    risk_set_parser = engine_sub.add_parser("risk-set", help="Update a risk setting")
+    risk_set_parser.add_argument("key", help="Setting name")
+    risk_set_parser.add_argument("value", type=float, help="New value")
+
+    history_parser = engine_sub.add_parser("history", help="View proposal history")
+    history_parser.add_argument("--ticker", help="Filter by ticker")
+    history_parser.add_argument("--status", help="Filter by status")
+    history_parser.add_argument("--since", help="Show proposals from date (YYYY-MM-DD)")
+    history_parser.add_argument("--limit", type=int, default=20, help="Max results")
+
+    engine_sub.add_parser("status", help="Show engine status")
+
     # Market data commands
     market_parser = subparsers.add_parser("market", help="Market data operations")
     market_sub = market_parser.add_subparsers(dest="market_command")
@@ -122,6 +150,8 @@ def main(argv: list[str] | None = None) -> None:
         cmd_signals(args)
     elif args.command == "profile":
         cmd_profile(args)
+    elif args.command == "engine":
+        cmd_engine(args)
     elif args.command == "market":
         cmd_market(args)
     else:
@@ -254,6 +284,17 @@ def cmd_health() -> None:
         market_data_ok = True
     except Exception as e:
         print(f"Market Data API: FAIL ({e})")
+
+    # --- Decision Engine ---
+    if db_ok and conn:
+        try:
+            from finance_agent.engine.state import get_kill_switch
+
+            ks = get_kill_switch(conn)
+            ks_str = "ON (halted)" if ks else "OFF (normal)"
+            print(f"Decision Engine: OK (kill switch: {ks_str}, schema v{version})")
+        except Exception as e:
+            print(f"Decision Engine: FAIL ({e})")
 
     if audit:
         audit.log("health_check", "cli", {
@@ -627,6 +668,602 @@ def cmd_profile(args: argparse.Namespace) -> None:
         for st, label in source_labels.items():
             count = source_breakdown.get(st, 0)
             print(f"  {label:<24}{count} signals")
+    finally:
+        close_connection(conn)
+
+
+def cmd_engine(args: argparse.Namespace) -> None:
+    """Handle engine subcommands."""
+    if args.engine_command == "generate":
+        _cmd_engine_generate(args)
+    elif args.engine_command == "review":
+        _cmd_engine_review(args)
+    elif args.engine_command == "killswitch":
+        _cmd_engine_killswitch(args)
+    elif args.engine_command == "risk":
+        _cmd_engine_risk()
+    elif args.engine_command == "risk-set":
+        _cmd_engine_risk_set(args)
+    elif args.engine_command == "history":
+        _cmd_engine_history(args)
+    elif args.engine_command == "status":
+        _cmd_engine_status()
+    else:
+        print(
+            "Usage: finance-agent engine "
+            "{generate|review|killswitch|risk|risk-set|history|status}"
+        )
+        sys.exit(1)
+
+
+def _cmd_engine_generate(args: argparse.Namespace) -> None:
+    """Generate trade proposals for watchlist companies."""
+    from finance_agent.db import close_connection
+    from finance_agent.engine.account import (
+        create_trading_client,
+        get_account_summary,
+        get_daily_orders,
+        get_daily_pnl,
+        get_positions,
+    )
+    from finance_agent.engine.proposals import generate_proposals
+    from finance_agent.engine.state import get_kill_switch, get_risk_settings
+
+    conn, audit, settings = _get_db_and_audit()
+
+    try:
+        # Check kill switch
+        if get_kill_switch(conn):
+            print("[KILL SWITCH ACTIVE] Engine halted. Run 'engine killswitch off' to resume.")
+            sys.exit(1)
+
+        # Create trading client
+        try:
+            trading_client = create_trading_client(
+                settings.active_api_key, settings.active_secret_key,
+                paper=not settings.is_live,
+            )
+            account_summary = get_account_summary(trading_client)
+            positions_list = get_positions(trading_client)
+            daily_orders = get_daily_orders(trading_client)
+            daily_pnl = get_daily_pnl(trading_client, account_summary, positions_list)
+        except Exception as e:
+            print(
+                "ERROR: Cannot reach Alpaca account API. "
+                "Portfolio data required for risk checks."
+            )
+            print(f"  Detail: {e}")
+            sys.exit(1)
+
+        # Create Anthropic client if available
+        anthropic_client = None
+        if settings.anthropic_available:
+            try:
+                import anthropic
+                anthropic_client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+            except Exception:
+                pass
+
+        if not anthropic_client:
+            print("Note: ANTHROPIC_API_KEY not set. Using base score only (no LLM adjustment).")
+
+        risk_settings = get_risk_settings(conn)
+
+        # Print header
+        equity = float(account_summary["equity"])
+        bp = float(account_summary["buying_power"])
+        pos_count = len(positions_list)
+        max_trades = int(risk_settings.get("max_trades_per_day", 20))
+        pnl_str = f"${daily_pnl['total_change']:+,.2f}"
+
+        print(f"[{settings.mode_label}] Decision Engine — Generating proposals...")
+        print()
+        print(
+            f"Account: ${equity:,.2f} equity | ${bp:,.2f} buying power | "
+            f"{pos_count} positions | {daily_orders}/{max_trades} trades today | "
+            f"P&L: {pnl_str}"
+        )
+        print()
+
+        dry_run = getattr(args, "dry_run", False)
+        ticker = getattr(args, "ticker", None)
+
+        proposals = generate_proposals(
+            conn, trading_client, anthropic_client,
+            account_summary, positions_list,
+            risk_settings=risk_settings,
+            ticker=ticker,
+            dry_run=dry_run,
+            audit=audit,
+        )
+
+        # Run risk checks on non-skipped proposals
+        from finance_agent.engine.risk import run_all_risk_checks
+
+        pending_count = 0
+        rejected_count = 0
+        skipped_count = 0
+
+        for p in proposals:
+            if p.get("status") == "skipped":
+                score_str = ""
+                if "confidence_score" in p:
+                    score_str = f" score {p['confidence_score']:+.2f}"
+                print(f"{p['ticker']}:{score_str} → SKIPPED")
+                print(f"  Reason: {p.get('reason', 'unknown')}")
+                print()
+                skipped_count += 1
+                continue
+
+            # Run risk checks
+            if not dry_run and p.get("id"):
+                risk_results = run_all_risk_checks(
+                    conn, p, account_summary, positions_list,
+                    daily_orders, daily_pnl, risk_settings, audit=audit,
+                )
+            else:
+                risk_results = []
+
+            direction = p["direction"].upper()
+            score_str = f"{p['confidence_score']:+.2f}"
+            base_str = f"{p['base_score']:+.2f}"
+            llm_str = f"{p['llm_adjustment']:+.2f}"
+            qty = p["quantity"]
+            price = p["limit_price"]
+            cost = p["estimated_cost"]
+
+            print(
+                f"{p['ticker']}: score {score_str} (base {base_str}, LLM {llm_str}) "
+                f"→ {direction} {qty} shares @ ${price:.2f} limit (${cost:,.2f})"
+            )
+
+            # Source summary
+            sig_count = len(p.get("signals", []))
+            fact_count = sum(
+                1 for s in p.get("signals", [])
+                if str(s.get("evidence_type", "")) == "fact"
+            )
+            inf_count = sig_count - fact_count
+            ind = p.get("indicators", {})
+            parts = [f"{sig_count} signals ({fact_count} fact, {inf_count} inference)"]
+            if ind.get("sma_20") and ind.get("sma_50"):
+                cross = "bullish" if ind["sma_20"] > ind["sma_50"] else "bearish"
+                parts.append(f"SMA {cross}")
+            if ind.get("rsi_14"):
+                parts.append(f"RSI {ind['rsi_14']:.1f}")
+            print(f"  Sources: {' | '.join(parts)}")
+
+            # Risk results
+            all_passed = True
+            for rr in risk_results:
+                symbol = "✓" if rr["passed"] else "✗"
+                print(f"  Risk: {symbol} {rr['rule_name']} ({rr['details']})")
+                if not rr["passed"]:
+                    all_passed = False
+
+            if all_passed:
+                status_str = "PENDING (awaiting review)"
+                if dry_run:
+                    status_str = "DRY RUN (not saved)"
+                pending_count += 1
+            else:
+                status_str = "REJECTED (risk check failed)"
+                rejected_count += 1
+
+            print(f"  Status: {status_str}")
+            if p.get("staleness_warning"):
+                print("  ⚠ Market data may be stale")
+            print()
+
+        # Summary
+        total = len(proposals) - skipped_count
+        print(
+            f"Summary: {total} proposals generated "
+            f"({pending_count} pending, {rejected_count} rejected), "
+            f"{skipped_count} skipped"
+        )
+
+        audit.log("engine_generate", "cli", {
+            "ticker": ticker,
+            "dry_run": dry_run,
+            "proposals": total,
+            "pending": pending_count,
+            "rejected": rejected_count,
+            "skipped": skipped_count,
+        })
+
+    finally:
+        close_connection(conn)
+
+
+def _cmd_engine_review(args: argparse.Namespace) -> None:
+    """Review and act on pending trade proposals."""
+    from finance_agent.db import close_connection
+    from finance_agent.engine.proposals import (
+        approve_proposal,
+        get_pending_proposals,
+        reject_proposal,
+    )
+    from finance_agent.engine.state import get_kill_switch
+
+    conn, audit, settings = _get_db_and_audit()
+
+    try:
+        kill_switch_active = get_kill_switch(conn)
+        if kill_switch_active:
+            print("[KILL SWITCH ACTIVE] You can view proposals but cannot approve.")
+            print()
+
+        ticker = getattr(args, "ticker", None)
+        proposals = get_pending_proposals(conn, ticker)
+
+        if not proposals:
+            print(f"[{settings.mode_label}] No pending proposals.")
+            return
+
+        print(f"[{settings.mode_label}] Decision Engine — Review Proposals")
+        print()
+
+        for p in proposals:
+            print(f"Proposal #{p['id']}: {p['direction'].upper()} {p['ticker']}")
+            print(f"  Direction:   {p['direction'].upper()}")
+            print(f"  Quantity:    {p['quantity']} shares")
+            print(f"  Limit Price: ${p['limit_price']:.2f}")
+            print(f"  Est. Cost:   ${p['quantity'] * p['limit_price']:,.2f}")
+            print(
+                f"  Confidence:  {p['confidence_score']:+.2f} "
+                f"(base {p['base_score']:+.2f}, LLM {p['llm_adjustment']:+.2f})"
+            )
+            if p.get("llm_rationale"):
+                print(f"    LLM note: \"{p['llm_rationale']}\"")
+            print()
+            print("  Score Breakdown:")
+            print(f"    Signal:    {p['signal_score']:+.2f}")
+            print(f"    Indicator: {p['indicator_score']:+.2f}")
+            print(f"    Momentum:  {p['momentum_score']:+.2f}")
+            print()
+
+            # Cited sources
+            if p.get("sources"):
+                print("  Cited Sources:")
+                for i, src in enumerate(p["sources"], 1):
+                    print(
+                        f"    [{i}] {src['source_type']} #{src['source_id']}: "
+                        f"{src.get('contribution', '')}"
+                    )
+                print()
+
+            # Risk checks
+            if p.get("risk_checks"):
+                print("  Risk Checks:")
+                for rc in p["risk_checks"]:
+                    symbol = "✓" if rc["passed"] else "✗"
+                    print(
+                        f"    {symbol} {rc['rule_name']}: "
+                        f"{rc['actual_value']} (limit: {rc['limit_value']})"
+                    )
+                    if rc.get("details"):
+                        print(f"      {rc['details']}")
+                print()
+
+            # Prompt for action
+            try:
+                action = input("  Action [a]pprove / [r]eject / [s]kip: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print("\n  Review cancelled.")
+                return
+
+            if action in ("a", "approve"):
+                if kill_switch_active:
+                    print(
+                        "  ✗ Cannot approve: kill switch is active. "
+                        "Run 'engine killswitch off' first."
+                    )
+                else:
+                    try:
+                        reason_input = input("  Reason (optional, press Enter to skip): ").strip()
+                    except (EOFError, KeyboardInterrupt):
+                        reason_input = ""
+                    reason = reason_input or None
+                    approve_proposal(conn, p["id"], reason=reason, audit=audit)
+                    print(f"  ✓ Proposal #{p['id']} APPROVED — recorded in audit log.")
+            elif action in ("r", "reject"):
+                try:
+                    reason_input = input("  Reason (optional, press Enter to skip): ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    reason_input = ""
+                reason = reason_input or None
+                reject_proposal(conn, p["id"], reason=reason, audit=audit)
+                print(f"  ✓ Proposal #{p['id']} REJECTED — recorded in audit log.")
+            else:
+                print(f"  — Proposal #{p['id']} skipped.")
+
+            print()
+            print("---")
+            print()
+
+        print("No more pending proposals.")
+
+    finally:
+        close_connection(conn)
+
+
+def _cmd_engine_killswitch(args: argparse.Namespace) -> None:
+    """Toggle the kill switch."""
+    from finance_agent.db import close_connection
+    from finance_agent.engine.state import get_kill_switch, set_kill_switch
+
+    conn, audit, _settings = _get_db_and_audit()
+
+    try:
+        active = args.action == "on"
+        current = get_kill_switch(conn)
+
+        if current == active:
+            state_str = "ON" if active else "OFF"
+            print(f"Kill switch is already {state_str}. No change.")
+            return
+
+        changed = set_kill_switch(conn, active, toggled_by="operator", audit=audit)
+        if changed:
+            if active:
+                print("[KILL SWITCH ACTIVATED] All proposal generation and approval halted.")
+            else:
+                print("[KILL SWITCH DEACTIVATED] Normal operation resumed.")
+            action_str = "ON" if active else "OFF"
+            from datetime import UTC, datetime
+            now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            print(f"Logged: kill_switch toggled {action_str} at {now} by operator")
+    finally:
+        close_connection(conn)
+
+
+def _cmd_engine_risk() -> None:
+    """View current risk control settings."""
+    from finance_agent.db import close_connection
+    from finance_agent.engine.account import (
+        create_trading_client,
+        get_account_summary,
+        get_daily_orders,
+        get_daily_pnl,
+        get_positions,
+    )
+    from finance_agent.engine.state import get_risk_settings
+
+    conn, _audit, settings = _get_db_and_audit()
+
+    try:
+        risk_settings = get_risk_settings(conn)
+
+        # Try to get account data for context
+        equity = 0.0
+        daily_orders_count = 0
+        pnl_str = "N/A"
+        positions_str = "N/A"
+        try:
+            trading_client = create_trading_client(
+                settings.active_api_key, settings.active_secret_key,
+                paper=not settings.is_live,
+            )
+            account_summary = get_account_summary(trading_client)
+            positions_list = get_positions(trading_client)
+            daily_orders_count = get_daily_orders(trading_client)
+            daily_pnl = get_daily_pnl(trading_client, account_summary, positions_list)
+            equity = float(account_summary["equity"])
+            pnl_str = f"${daily_pnl['total_change']:+,.2f}"
+            # Group positions by symbol
+            pos_symbols: dict[str, int] = {}
+            for p in positions_list:
+                sym = str(p["symbol"])
+                pos_symbols[sym] = pos_symbols.get(sym, 0) + 1
+            if pos_symbols:
+                positions_str = ", ".join(f"{s} ({c})" for s, c in pos_symbols.items())
+            else:
+                positions_str = "none"
+        except Exception:
+            pass
+
+        max_pos_pct = float(risk_settings.get("max_position_pct", 0.10))
+        max_loss_pct = float(risk_settings.get("max_daily_loss_pct", 0.05))
+        max_trades = int(risk_settings.get("max_trades_per_day", 20))
+        max_per_sym = int(risk_settings.get("max_positions_per_symbol", 2))
+        min_conf = float(risk_settings.get("min_confidence_threshold", 0.45))
+        max_age = int(risk_settings.get("max_signal_age_days", 14))
+        min_sig = int(risk_settings.get("min_signal_count", 3))
+        stale = int(risk_settings.get("data_staleness_hours", 24))
+
+        pos_dollars = f"${equity * max_pos_pct:,.2f}" if equity else "N/A"
+        loss_dollars = f"${equity * max_loss_pct:,.2f}" if equity else "N/A"
+
+        print(f"[{settings.mode_label}] Risk Control Settings")
+        print()
+        print(
+            f"  Max Position Size:     {max_pos_pct:.0%} of portfolio "
+            f"({pos_dollars} at current equity)"
+        )
+        print(
+            f"  Max Daily Loss:        {max_loss_pct:.0%} of portfolio "
+            f"({loss_dollars} at current equity)"
+        )
+        print(f"  Max Trades/Day:        {max_trades}")
+        print(f"  Max Positions/Symbol:  {max_per_sym}")
+        print(f"  Min Confidence:        {min_conf}")
+        print(f"  Max Signal Age:        {max_age} days")
+        print(f"  Min Signal Count:      {min_sig}")
+        print(f"  Data Staleness:        {stale} hours")
+        print()
+        print("  Today's Usage:")
+        print(f"    Trades: {daily_orders_count} / {max_trades}")
+        if pnl_str != "N/A":
+            loss_limit = equity * max_loss_pct
+            pnl_val = float(pnl_str.replace("$", "").replace(",", "").replace("+", ""))
+            usage_pct = abs(pnl_val / loss_limit * 100) if loss_limit > 0 else 0
+            print(
+                f"    Daily P&L: {pnl_str} / -${loss_limit:,.2f} "
+                f"limit ({usage_pct:.1f}% of limit used)"
+            )
+        print(f"    Positions: {positions_str}")
+
+    finally:
+        close_connection(conn)
+
+
+def _cmd_engine_risk_set(args: argparse.Namespace) -> None:
+    """Update a risk control setting."""
+    from finance_agent.db import close_connection
+    from finance_agent.engine.state import update_risk_setting
+
+    conn, audit, _settings = _get_db_and_audit()
+
+    try:
+        old_val, new_val = update_risk_setting(
+            conn, args.key, args.value, updated_by="operator", audit=audit,
+        )
+        print(f"Updated {args.key}: {old_val} → {new_val}")
+        print(
+            f"Logged: risk_settings.{args.key} changed "
+            f"from {old_val} to {new_val} by operator"
+        )
+    except ValueError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    finally:
+        close_connection(conn)
+
+
+def _cmd_engine_history(args: argparse.Namespace) -> None:
+    """View proposal history."""
+    from finance_agent.db import close_connection
+    from finance_agent.engine.proposals import query_proposal_history
+
+    conn, _audit, settings = _get_db_and_audit()
+
+    try:
+        ticker = getattr(args, "ticker", None)
+        status = getattr(args, "status", None)
+        since = getattr(args, "since", None)
+        limit = getattr(args, "limit", 20)
+
+        proposals = query_proposal_history(conn, ticker, status, since, limit)
+
+        print(f"[{settings.mode_label}] Proposal History (last {limit})")
+        print()
+
+        if not proposals:
+            print("  No proposals found.")
+            return
+
+        for p in proposals:
+            created = str(p.get("created_at", ""))[:16]
+            direction = str(p.get("direction", "")).upper()
+            qty = p.get("quantity", 0)
+            price = p.get("limit_price", 0)
+            score = p.get("confidence_score", 0)
+            p_status = str(p.get("status", "")).upper()
+            reason = p.get("decision_reason") or "—"
+            if len(reason) > 30:
+                reason = reason[:27] + "..."
+            print(
+                f"  #{p['id']:<4}{created}  {p['ticker']:<6}"
+                f"{direction:<5} {qty} @ ${price:.2f}  "
+                f"{score:+.2f}  {p_status:<10}{reason}"
+            )
+
+        # Totals
+        statuses = [str(p.get("status", "")) for p in proposals]
+        approved = statuses.count("approved")
+        rejected = statuses.count("rejected")
+        expired = statuses.count("expired")
+        pending = statuses.count("pending")
+        print()
+        parts = []
+        if approved:
+            parts.append(f"{approved} approved")
+        if rejected:
+            parts.append(f"{rejected} rejected")
+        if expired:
+            parts.append(f"{expired} expired")
+        if pending:
+            parts.append(f"{pending} pending")
+        print(f"Totals: {len(proposals)} proposals ({', '.join(parts)})")
+
+    finally:
+        close_connection(conn)
+
+
+def _cmd_engine_status() -> None:
+    """Show engine status summary."""
+    from finance_agent.db import close_connection
+    from finance_agent.engine.account import (
+        create_trading_client,
+        get_account_summary,
+        get_daily_orders,
+        get_daily_pnl,
+        get_positions,
+    )
+    from finance_agent.engine.proposals import get_engine_status
+
+    conn, _audit, settings = _get_db_and_audit()
+
+    try:
+        try:
+            trading_client = create_trading_client(
+                settings.active_api_key, settings.active_secret_key,
+                paper=not settings.is_live,
+            )
+            account_summary = get_account_summary(trading_client)
+            positions_list = get_positions(trading_client)
+            daily_orders_count = get_daily_orders(trading_client)
+            daily_pnl = get_daily_pnl(trading_client, account_summary, positions_list)
+        except Exception as e:
+            print(f"ERROR: Cannot reach Alpaca API: {e}")
+            sys.exit(1)
+
+        status = get_engine_status(
+            conn, account_summary, daily_orders_count, daily_pnl,
+        )
+
+        ks_str = "ON" if status["kill_switch"] else "OFF"
+        equity = status["equity"]
+        bp = status["buying_power"]
+        trades = status["daily_order_count"]
+        max_trades = status["max_trades_per_day"]
+        trades_pct = (trades / max_trades * 100) if max_trades > 0 else 0
+        pnl = status["daily_pnl"]["total_change"]
+        max_loss = status["max_daily_loss"]
+        pnl_pct = (abs(pnl) / max_loss * 100) if max_loss > 0 else 0
+
+        print(f"[{settings.mode_label}] Decision Engine Status")
+        print()
+        print(f"  Kill Switch:    {ks_str}")
+        print(f"  Account:        ${equity:,.2f} equity | ${bp:,.2f} buying power")
+        print(f"  Trades Today:   {trades} / {max_trades} ({trades_pct:.1f}%)")
+        print(
+            f"  Daily P&L:      ${pnl:+,.2f} / -${max_loss:,.2f} limit "
+            f"({pnl_pct:.1f}% of limit used)"
+        )
+
+        # Positions
+        pos_parts = []
+        for p in positions_list:
+            pos_parts.append(f"{p['symbol']}: {p['qty']} share{'s' if int(p['qty']) != 1 else ''}")
+        pos_str = ", ".join(pos_parts) if pos_parts else "none"
+        print(f"  Positions:      {len(positions_list)} open ({pos_str})")
+        print()
+        print(f"  Pending:        {status['pending_proposals']} proposal(s) awaiting review")
+        print(
+            f"  Today:          {status['today_generated']} generated, "
+            f"{status['today_approved']} approved, {status['today_rejected']} rejected"
+        )
+        print()
+        rs = status["risk_settings"]
+        print(
+            f"  Risk Settings:  {rs.get('max_position_pct', 0.10):.0%} position | "
+            f"{rs.get('max_daily_loss_pct', 0.05):.0%} daily loss | "
+            f"{rs.get('max_trades_per_day', 20)} trades/day | "
+            f"{rs.get('max_positions_per_symbol', 2)} per symbol"
+        )
+
     finally:
         close_connection(conn)
 

@@ -48,9 +48,9 @@ def mock_alpaca_client() -> MagicMock:
 class TestMigration:
     """Verify 003_market_data.sql applies cleanly."""
 
-    def test_schema_version_is_3(self, market_db: sqlite3.Connection) -> None:
+    def test_schema_version_is_4(self, market_db: sqlite3.Connection) -> None:
         version = get_schema_version(market_db)
-        assert version == 3
+        assert version == 4
 
     def test_price_bar_table_exists(self, market_db: sqlite3.Connection) -> None:
         row = market_db.execute(
