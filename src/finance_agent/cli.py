@@ -78,6 +78,13 @@ def main(argv: list[str] | None = None) -> None:
     profile_parser = subparsers.add_parser("profile", help="Show company research profile")
     profile_parser.add_argument("ticker", help="Stock ticker symbol")
 
+    # MCP server command
+    mcp_parser = subparsers.add_parser("mcp", help="Start the MCP research server")
+    mcp_parser.add_argument(
+        "--http", action="store_true",
+        help="Run in HTTP mode (0.0.0.0:8000) instead of stdio",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command == "version":
@@ -94,6 +101,8 @@ def main(argv: list[str] | None = None) -> None:
         cmd_signals(args)
     elif args.command == "profile":
         cmd_profile(args)
+    elif args.command == "mcp":
+        cmd_mcp(args)
     else:
         parser.print_help()
         sys.exit(1)
@@ -562,5 +571,16 @@ def cmd_profile(args: argparse.Namespace) -> None:
             print(f"  {label:<24}{count} signals")
     finally:
         close_connection(conn)
+
+
+def cmd_mcp(args: argparse.Namespace) -> None:
+    """Start the MCP research server."""
+    from finance_agent.mcp.research_server import mcp
+
+    if args.http:
+        print("Starting MCP server in HTTP mode on 0.0.0.0:8000...")
+        mcp.run(transport="http", host="0.0.0.0", port=8000)
+    else:
+        mcp.run()
 
 

@@ -48,6 +48,8 @@ Claude Desktop (on-demand):
 - New data sources planned: FRED, Tiingo, SEC RSS, 13F, Form 4, Quiver Quantitative (008-system-architecture)
 - Python 3.12+ (existing codebase) + finnhub-python>=2.4 (existing), earningscall>=1.4 (new), anthropic (existing), pydantic (existing) (009-finnhub-earningscall-refactor)
 - SQLite (existing tables — no schema changes) + filesystem for raw documents (009-finnhub-earningscall-refactor)
+- Python 3.12+ (existing codebase) + `fastmcp>=2.14,<3` (new); sqlite3, pathlib (stdlib); existing `finance_agent` package (010-mcp-integration)
+- SQLite read-only access (`file:{path}?mode=ro` URI), filesystem for document conten (010-mcp-integration)
 
 ## Recent Changes
 - 007-architecture-cleanup: Removed execution/engine/market layers (~3,500 lines). Extracted safety module. Migration 006 drops 8 tables, renames engine_state → safety_state. CLI streamlined. Architecture pivot to research-first system.

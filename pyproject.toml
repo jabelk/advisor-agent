@@ -13,6 +13,7 @@ dependencies = [
     "feedparser>=6.0",
     "finnhub-python>=2.4",
     "httpx",
+    "fastmcp>=2.14,<3",
     "pydantic>=2.0",
     "pytz>=2025.2",
 ]
@@ -47,9 +48,14 @@ warn_return_any = true
 warn_unused_configs = true
 
 [[tool.mypy.overrides]]
-module = ["edgar.*", "edgar", "earningscall.*", "earningscall", "finnhub.*", "finnhub", "feedparser.*", "feedparser"]
+module = ["edgar.*", "edgar", "earningscall.*", "earningscall", "finnhub.*", "finnhub", "feedparser.*", "feedparser", "fastmcp.*", "fastmcp"]
 ignore_missing_imports = true
 follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = "finance_agent.mcp.research_server"
+disable_error_code = ["misc", "no-untyped-def"]
+allow_untyped_decorators = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
