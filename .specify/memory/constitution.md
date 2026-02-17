@@ -1,7 +1,10 @@
 <!-- Sync Impact Report
-  Version change: 1.1.1 → 1.2.0 (Minor - added research data source dependencies to Technology Stack)
+  Version change: 1.2.0 → 1.3.0 (Minor - architecture pivot to research-first, human-decides system)
   Modified sections:
-    - Technology Stack: Added finnhub-python, feedparser, beautifulsoup4 to Data Sources; added LLM SDK entry for anthropic; expanded Storage to include research signals and article artifacts
+    - Core Principles: Updated II (Research-Driven) to emphasize conversational analysis and human decisions
+    - Core Principles: Updated III (Modular Architecture) to reflect MCP-based execution and n8n orchestration
+    - Technology Stack: Added n8n, Claude Agent SDK, FRED, Tiingo, Reddit/PRAW, StockTwits, sqlite-vec, ntfy.sh, FastMCP
+    - Technology Stack: Marked Alpaca MCP as primary execution path alongside alpaca-py
   Templates requiring updates: None
   Follow-up TODOs: None
 -->
@@ -24,27 +27,33 @@ Rationale: This is a learning/experimentation platform with real money. Catastro
 
 ### II. Research-Driven Decisions
 
-Every trade proposal MUST be grounded in data: SEC filings, earnings transcripts, price history, news, or fundamental metrics. The LLM MUST NOT generate trade ideas from "intuition" or training data alone. Each proposal MUST cite the specific data sources that informed it.
+Every trade decision MUST be grounded in data: SEC filings, earnings transcripts, price history, news, macro indicators, insider activity, or social sentiment. The LLM MUST NOT generate trade ideas from "intuition" or training data alone. Each analysis MUST cite the specific data sources that informed it.
 
 - Research artifacts (filings, transcripts, analysis summaries) MUST be persisted locally before being used in decisions
 - The system MUST distinguish between facts (from data sources) and inferences (from LLM analysis)
+- Analysis SHOULD consider both bullish and bearish perspectives before producing a signal
+- The human makes the final trading decision — the system provides research and analysis, not automated execution
+- Conversational analysis (Claude examining nuance, narrative, tone) is preferred over deterministic scoring formulas
 - Backtesting or paper-trading validation SHOULD precede any strategy going live
 
-Rationale: LLMs hallucinate. Financial decisions based on hallucinated data lose real money.
+Rationale: LLMs hallucinate. Financial decisions based on hallucinated data lose real money. Conversational analysis captures nuance that scoring formulas cannot.
 
-### III. Modular Architecture
+### III. Modular Architecture — Less Code, More Context
 
 The system MUST be composed of independent, swappable layers:
 
-- **Data Ingestion**: Fetches and stores market data, filings, transcripts, news
-- **Research/Analysis**: LLM-powered analysis of ingested data, produces structured signals
-- **Decision Engine**: Applies rules + signals to generate trade proposals with risk checks
-- **Execution**: Translates approved proposals into broker API calls (Alpaca)
+- **Data Ingestion**: Fetches and stores market data, filings, transcripts, news, social sentiment, macro indicators
+- **Research/Analysis**: LLM-powered analysis of ingested data, produces structured signals and multi-level summaries
+- **Decision Support**: Presents synthesized research to human via Claude Desktop/MCP; human decides
+- **Execution**: Broker API calls via Alpaca MCP server (interactive) or alpaca-py SDK (programmatic)
+- **Orchestration**: n8n schedules ingestion, triggers analysis, sends notifications
 - **Logging/Audit**: Records everything across all layers
 
 Each layer communicates through well-defined interfaces. Swapping the broker (Alpaca to IBKR), the LLM (Claude to another model), or the data source MUST NOT require changes to other layers.
 
-Rationale: This is an evolving experiment. The ability to swap components without rewriting the system is essential for rapid iteration.
+**Don't build what exists**: Use MCP servers, n8n workflows, and existing tools. Only write custom code for what's truly unique to this project. Every line of plumbing code maintained is context that Claude Code can't use for research innovation.
+
+Rationale: This is an evolving experiment run by a solo developer coding through Claude Code. Context window is a real constraint — minimizing custom code maximizes the budget for research and analysis innovation.
 
 ### IV. Audit Everything
 
@@ -74,11 +83,15 @@ Rationale: Compromised trading API keys can drain an account. Defense in depth i
 
 - **Language**: Python 3.12+ with type hints throughout
 - **Package Manager**: uv (Astral)
-- **Broker**: Alpaca Markets (paper + live), accessed via official alpaca-py SDK and Alpaca MCP server
-- **LLM**: Claude (via Anthropic API or MCP), with support for swapping providers
-- **Data Sources**: SEC EDGAR (free, via edgartools), Finnhub (earnings transcripts, via finnhub-python), Alpaca market data (included), RSS feeds (via feedparser + beautifulsoup4)
-- **LLM SDK**: anthropic (Python SDK) for structured analysis with Pydantic output models
-- **Storage**: SQLite for structured data (trades, positions, audit log, research signals), filesystem for research artifacts (filings, transcripts, podcast transcripts, articles)
+- **Broker**: Alpaca Markets (paper + live), accessed via Alpaca MCP server (interactive) and alpaca-py SDK (programmatic)
+- **LLM**: Claude (via Anthropic API, MCP, or Claude Agent SDK), with support for swapping providers
+- **Agent Framework**: Claude Agent SDK (Python) for autonomous research agents
+- **Data Sources**: SEC EDGAR (edgartools — filings, Form 4, 13F), Finnhub (market signals, news), Tiingo (ticker-tagged news), FRED (macro indicators via fredapi), RSS feeds (feedparser), Reddit (PRAW), StockTwits (REST API), Alpaca market data
+- **LLM SDK**: anthropic (Python SDK) for structured analysis with Pydantic output models; prompt caching for token efficiency
+- **MCP Servers**: Alpaca (trading), custom research DB (FastMCP), QuantConnect (backtesting), sec-edgar-mcp (filings)
+- **Storage**: SQLite for structured data (research signals, audit log, macro data, social sentiment), sqlite-vec for vector search, filesystem for research artifacts
+- **Orchestration**: n8n (self-hosted Docker on NUC) for scheduling, triggers, and notifications
+- **Notifications**: ntfy.sh (self-hosted on NUC) for mobile push alerts
 - **Runtime**: Intel NUC (home server), Docker for isolation, NATS available for messaging if needed
 - **CI**: GitHub Actions (private runner already available on NUC)
 - **Testing**: pytest, with paper trading integration tests
@@ -128,4 +141,4 @@ Principles I (Safety First) and V (Security by Design) are elevated constraints 
 
 All PRs MUST verify compliance with these principles. Complexity MUST be justified — prefer simple, working solutions over elegant abstractions.
 
-**Version**: 1.2.0 | **Ratified**: 2026-02-16 | **Last Amended**: 2026-02-16
+**Version**: 1.3.0 | **Ratified**: 2026-02-16 | **Last Amended**: 2026-02-17
