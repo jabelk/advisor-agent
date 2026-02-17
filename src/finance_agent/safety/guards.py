@@ -1,4 +1,4 @@
-"""Engine state persistence: kill switch and risk settings in SQLite."""
+"""Safety guardrail persistence: kill switch and risk settings in SQLite."""
 
 from __future__ import annotations
 
@@ -11,16 +11,12 @@ from finance_agent.audit.logger import AuditLogger
 
 logger = logging.getLogger(__name__)
 
-# Default risk settings (must match migration 004)
-DEFAULT_RISK_SETTINGS = {
+# Default risk settings — core safety limits only
+DEFAULT_RISK_SETTINGS: dict[str, float | int] = {
     "max_position_pct": 0.10,
     "max_daily_loss_pct": 0.05,
     "max_trades_per_day": 20,
     "max_positions_per_symbol": 2,
-    "min_confidence_threshold": 0.45,
-    "max_signal_age_days": 14,
-    "min_signal_count": 3,
-    "data_staleness_hours": 24,
 }
 
 # Validation ranges for risk settings
@@ -29,17 +25,13 @@ RISK_SETTING_RANGES: dict[str, tuple[float, float]] = {
     "max_daily_loss_pct": (0.01, 0.20),
     "max_trades_per_day": (1, 100),
     "max_positions_per_symbol": (1, 10),
-    "min_confidence_threshold": (0.1, 0.9),
-    "max_signal_age_days": (1, 90),
-    "min_signal_count": (1, 20),
-    "data_staleness_hours": (1, 168),
 }
 
 
 def get_kill_switch(conn: sqlite3.Connection) -> bool:
     """Return True if kill switch is active."""
     row = conn.execute(
-        "SELECT value FROM engine_state WHERE key = 'kill_switch'"
+        "SELECT value FROM safety_state WHERE key = 'kill_switch'"
     ).fetchone()
     if not row:
         return False
@@ -65,7 +57,7 @@ def set_kill_switch(
         "toggled_by": toggled_by,
     })
     conn.execute(
-        "UPDATE engine_state SET value = ?, updated_at = ?, updated_by = ? "
+        "UPDATE safety_state SET value = ?, updated_at = ?, updated_by = ? "
         "WHERE key = 'kill_switch'",
         (state, now, toggled_by),
     )
@@ -75,7 +67,7 @@ def set_kill_switch(
     logger.info("Kill switch %s by %s", action, toggled_by)
 
     if audit:
-        audit.log("kill_switch_toggle", "engine", {
+        audit.log("kill_switch_toggle", "safety", {
             "active": active,
             "toggled_by": toggled_by,
         })
@@ -84,13 +76,18 @@ def set_kill_switch(
 
 
 def get_risk_settings(conn: sqlite3.Connection) -> dict[str, float | int]:
-    """Return current risk settings from engine_state table."""
+    """Return current risk settings from safety_state table."""
     row = conn.execute(
-        "SELECT value FROM engine_state WHERE key = 'risk_settings'"
+        "SELECT value FROM safety_state WHERE key = 'risk_settings'"
     ).fetchone()
     if not row:
         return dict(DEFAULT_RISK_SETTINGS)
-    return json.loads(row["value"])
+    stored = json.loads(row["value"])
+    # Return only the four core safety settings, ignoring any legacy keys
+    result: dict[str, float | int] = {}
+    for key in DEFAULT_RISK_SETTINGS:
+        result[key] = stored.get(key, DEFAULT_RISK_SETTINGS[key])
+    return result
 
 
 def update_risk_setting(
@@ -118,14 +115,13 @@ def update_risk_setting(
     old_value = settings.get(key, DEFAULT_RISK_SETTINGS.get(key, 0))
 
     # Use int for integer-type settings
-    if key in ("max_trades_per_day", "max_positions_per_symbol",
-               "max_signal_age_days", "data_staleness_hours", "min_signal_count"):
+    if key in ("max_trades_per_day", "max_positions_per_symbol"):
         value = int(value)
 
     settings[key] = value
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     conn.execute(
-        "UPDATE engine_state SET value = ?, updated_at = ?, updated_by = ? "
+        "UPDATE safety_state SET value = ?, updated_at = ?, updated_by = ? "
         "WHERE key = 'risk_settings'",
         (json.dumps(settings), now, updated_by),
     )
@@ -134,7 +130,7 @@ def update_risk_setting(
     logger.info("Risk setting %s: %s → %s (by %s)", key, old_value, value, updated_by)
 
     if audit:
-        audit.log("risk_setting_update", "engine", {
+        audit.log("risk_setting_update", "safety", {
             "key": key,
             "old_value": old_value,
             "new_value": value,
