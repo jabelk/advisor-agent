@@ -181,7 +181,8 @@ def cmd_health() -> None:
 
             last_run = get_last_run(conn)
             if last_run:
-                print(f"Research Pipeline: OK (last run: {last_run['started_at'][:16]})")
+                started = str(last_run['started_at'])[:16]
+                print(f"Research Pipeline: OK (last run: {started})")
             else:
                 print("Research Pipeline: OK (no runs yet)")
             research_ok = True

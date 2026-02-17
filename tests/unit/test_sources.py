@@ -206,6 +206,81 @@ class TestFinnhubMarketSource:
         assert "1 buys" in result
         assert "1 sells" in result
 
+    def test_format_insider_sentiment(self) -> None:
+        from finance_agent.data.sources.finnhub import _format_insider_sentiment
+
+        data = [
+            {"month": 1, "year": 2025, "mspr": 42.07, "change": 3934},
+            {"month": 2, "year": 2025, "mspr": -15.5, "change": -500},
+        ]
+        result = _format_insider_sentiment(data, "NVDA")
+        assert "# NVDA Insider Sentiment" in result
+        assert "MSPR" in result
+        assert "1 positive months" in result
+        assert "1 negative months" in result
+
+    def test_format_company_news(self) -> None:
+        from finance_agent.data.sources.finnhub import _format_company_news
+
+        data = [
+            {
+                "headline": "NVDA beats earnings",
+                "source": "MarketWatch",
+                "summary": "Strong quarter results.",
+                "datetime": 1739750400,
+                "category": "company news",
+            },
+        ]
+        result = _format_company_news(data, "NVDA", "2025-02-17")
+        assert "# NVDA Recent News" in result
+        assert "NVDA beats earnings" in result
+        assert "MarketWatch" in result
+
+    def test_format_empty_data(self) -> None:
+        from finance_agent.data.sources.finnhub import (
+            _format_analyst_ratings,
+            _format_company_news,
+            _format_earnings_history,
+            _format_insider_activity,
+            _format_insider_sentiment,
+        )
+
+        assert "No analyst ratings" in _format_analyst_ratings([], "X", "2025-01-01")
+        assert "No earnings data" in _format_earnings_history([], "X")
+        assert "No insider transactions" in _format_insider_activity([], "X")
+        assert "No insider sentiment" in _format_insider_sentiment([], "X")
+        assert "No recent news" in _format_company_news([], "X", "2025-01-01")
+
+    @patch("finance_agent.data.sources.finnhub.FinnhubMarketSource._get_client")
+    def test_ingest_continues_on_endpoint_error(
+        self, mock_get_client: MagicMock, tmp_db: sqlite3.Connection, tmp_path: Path
+    ) -> None:
+        from finance_agent.data.sources.finnhub import FinnhubMarketSource
+
+        storage = StorageManager(str(tmp_path / "rd"))
+        storage.ensure_directory_structure()
+        source = FinnhubMarketSource(storage, "test_key")
+
+        mock_client = MagicMock()
+        # First endpoint fails
+        mock_client.recommendation_trends.side_effect = Exception("Rate limit")
+        # Second endpoint succeeds with data
+        mock_client.company_earnings.return_value = [
+            {"period": "2025-01-31", "actual": 0.85, "estimate": 0.80,
+             "surprise": 0.05, "surprisePercent": 6.25},
+        ]
+        # Rest return empty
+        mock_client.stock_insider_transactions.return_value = {"data": []}
+        mock_client.stock_insider_sentiment.return_value = {"data": []}
+        mock_client.company_news.return_value = []
+        mock_get_client.return_value = mock_client
+
+        watchlist = [{"ticker": "NVDA", "name": "NVIDIA", "cik": "0001045810"}]
+        docs = source.ingest(tmp_db, watchlist)
+        # Should get 1 doc from company_earnings despite recommendation_trends failing
+        assert len(docs) == 1
+        assert docs[0].content_type == "earnings_history"
+
     @patch("finance_agent.data.sources.finnhub.FinnhubMarketSource._get_client")
     def test_ingest_skips_existing(
         self, mock_get_client: MagicMock, tmp_db: sqlite3.Connection, tmp_path: Path
@@ -287,6 +362,28 @@ class TestEarningsCallSource:
         result = EarningsCallSource._format_transcript(transcript, "AAPL", 1, 2025)
         assert "# AAPL Q1 2025" in result
         assert "Full transcript text here." in result
+
+    def test_format_transcript_incomplete_speakers(self) -> None:
+        from finance_agent.data.sources.earningscall_source import EarningsCallSource
+
+        # Mock a transcript with speakers missing name/title
+        transcript = MagicMock()
+        speaker1 = MagicMock()
+        speaker1.name = "Unknown"
+        speaker1.title = ""
+        speaker1.speeches = ["Opening remarks."]
+        speaker2 = MagicMock()
+        speaker2.name = "Jane Doe"
+        speaker2.title = "CFO"
+        speaker2.speeches = ["Revenue was strong."]
+        transcript.speakers = [speaker1, speaker2]
+        transcript.text = None
+
+        result = EarningsCallSource._format_transcript(transcript, "AAPL", 2, 2025)
+        assert "# AAPL Q2 2025" in result
+        assert "Unknown" in result
+        assert "Jane Doe" in result
+        assert "Revenue was strong." in result
 
     def test_recent_quarters(self) -> None:
         from datetime import datetime

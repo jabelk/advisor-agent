@@ -45,6 +45,28 @@ class TestFinnhubIntegration:
         assert "estimate" in first
         assert "period" in first
 
+    def test_insider_transactions(self) -> None:
+        """Verify we can fetch AAPL insider transactions (free tier)."""
+        import finnhub
+
+        client = finnhub.Client(api_key=os.environ["FINNHUB_API_KEY"])
+        result = client.stock_insider_transactions("AAPL", "2024-01-01", "2025-02-01")
+
+        assert isinstance(result, dict)
+        assert "data" in result
+        assert isinstance(result["data"], list)
+
+    def test_insider_sentiment(self) -> None:
+        """Verify we can fetch AAPL insider sentiment (free tier)."""
+        import finnhub
+
+        client = finnhub.Client(api_key=os.environ["FINNHUB_API_KEY"])
+        result = client.stock_insider_sentiment("AAPL", "2024-01-01", "2025-02-01")
+
+        assert isinstance(result, dict)
+        assert "data" in result
+        assert isinstance(result["data"], list)
+
     def test_company_news(self) -> None:
         """Verify we can fetch AAPL company news (free tier)."""
         import finnhub
