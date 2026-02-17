@@ -1,11 +1,12 @@
 <!-- Sync Impact Report
-  Version change: 1.3.0 → 1.4.0 (Minor - align constitution with 007-architecture-cleanup)
+  Version change: 1.4.0 → 1.5.0 (Minor - align constitution with 008-system-architecture decisions)
   Modified sections:
-    - Core Principles I: Updated Safety First to reflect safety module (storage only, no execution layer)
-    - Core Principles III: Updated architecture layers to match current 3-layer + safety structure
-    - Core Principles IV: Updated Audit to remove execution-specific log items
-    - Technology Stack: Updated Broker description — alpaca-py for data API, MCP for future trading
-    - Quality Gates: Removed references to execution layer
+    - Technology Stack: Updated Data Sources (removed Reddit/StockTwits, added EarningsCall.biz, clarified Finnhub free tier)
+    - Technology Stack: Updated LLM SDK (added Pydantic AI)
+    - Technology Stack: Updated MCP Servers (removed QuantConnect)
+    - Technology Stack: Updated Storage (removed sqlite-vec)
+    - Technology Stack: Updated Orchestration (replaced n8n with systemd timers + NATS)
+    - Core Principles III: Updated to reflect architecture decision against n8n
   Templates requiring updates: None
   Follow-up TODOs: None
 -->
@@ -50,11 +51,11 @@ The system MUST be composed of independent, swappable layers:
 - **Safety**: Kill switch and risk limit storage (guardrails for any future execution layer)
 - **Logging/Audit**: Records everything across all layers
 
-Decision support and execution are handled externally — the human reviews research via Claude Desktop/MCP and places trades via Alpaca's interface or MCP server. Future layers (orchestration via n8n, automated execution) can be added without modifying existing code.
+Decision support and execution are handled externally — the human reviews research via Claude Desktop/MCP and places trades via Alpaca's interface or MCP server. Autonomous agents (monitoring, scanning, briefing) run as Python scripts on the NUC triggered by systemd timers, communicating via NATS. Future layers (automated execution) can be added without modifying existing code.
 
 Each layer communicates through well-defined interfaces. Swapping the LLM (Claude to another model) or the data source MUST NOT require changes to other layers.
 
-**Don't build what exists**: Use MCP servers, n8n workflows, and existing tools. Only write custom code for what's truly unique to this project. Every line of plumbing code maintained is context that Claude Code can't use for research innovation.
+**Don't build what exists**: Use MCP servers, systemd timers, and existing tools. Only write custom code for what's truly unique to this project. Every line of plumbing code maintained is context that Claude Code can't use for research innovation.
 
 Rationale: This is an evolving experiment run by a solo developer coding through Claude Code. Context window is a real constraint — minimizing custom code maximizes the budget for research and analysis innovation.
 
@@ -90,11 +91,11 @@ Rationale: Compromised trading API keys can drain an account. Defense in depth i
 - **Broker**: Alpaca Markets (paper + live), accessed via Alpaca MCP server (interactive trading); alpaca-py SDK for market data API
 - **LLM**: Claude (via Anthropic API, MCP, or Claude Agent SDK), with support for swapping providers
 - **Agent Framework**: Claude Agent SDK (Python) for autonomous research agents
-- **Data Sources**: SEC EDGAR (edgartools — filings, Form 4, 13F), Finnhub (market signals, news), Tiingo (ticker-tagged news), FRED (macro indicators via fredapi), RSS feeds (feedparser), Reddit (PRAW), StockTwits (REST API), Alpaca market data
-- **LLM SDK**: anthropic (Python SDK) for structured analysis with Pydantic output models; prompt caching for token efficiency
-- **MCP Servers**: Alpaca (trading), custom research DB (FastMCP), QuantConnect (backtesting), sec-edgar-mcp (filings)
-- **Storage**: SQLite for structured data (research signals, audit log, macro data, social sentiment), sqlite-vec for vector search, filesystem for research artifacts
-- **Orchestration**: n8n (self-hosted Docker on NUC) for scheduling, triggers, and notifications
+- **Data Sources**: SEC EDGAR (edgartools — filings, Form 4, 13F), Finnhub (market signals, news — free tier), EarningsCall.biz (earnings transcripts), Tiingo (ticker-tagged news), FRED (macro indicators via fredapi), SEC RSS feeds (feedparser), Alpaca market data
+- **LLM SDK**: anthropic (Python SDK) for structured analysis with Pydantic output models; Pydantic AI for type-safe structured outputs; prompt caching for token efficiency
+- **MCP Servers**: Alpaca (trading), custom research DB (FastMCP), sec-edgar-mcp (filings)
+- **Storage**: SQLite for structured data (research signals, audit log, macro data), filesystem for research artifacts
+- **Orchestration**: systemd timers (scheduling on NUC) + NATS (event messaging between agents)
 - **Notifications**: ntfy.sh (self-hosted on NUC) for mobile push alerts
 - **Runtime**: Intel NUC (home server), Docker for isolation, NATS available for messaging if needed
 - **CI**: GitHub Actions (private runner already available on NUC)
@@ -145,4 +146,4 @@ Principles I (Safety First) and V (Security by Design) are elevated constraints 
 
 All PRs MUST verify compliance with these principles. Complexity MUST be justified — prefer simple, working solutions over elegant abstractions.
 
-**Version**: 1.4.0 | **Ratified**: 2026-02-16 | **Last Amended**: 2026-02-17
+**Version**: 1.5.0 | **Ratified**: 2026-02-16 | **Last Amended**: 2026-02-17
