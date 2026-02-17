@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "finance-research": {
+      "command": "uv",
+      "args": ["run", "--project", "/path/to/finance-agent", "python", "-m", "finance_agent.mcp.research_server"],
+      "env": {
+        "DB_PATH": "/path/to/data/finance_agent.db",
+        "RESEARCH_DATA_DIR": "/path/to/research_data"
+      }
+    },
+    "alpaca": {
+      "command": "uvx",
+      "args": ["alpaca-mcp-server", "serve"],
+      "env": {
+        "ALPACA_API_KEY": "your-paper-api-key",
+        "ALPACA_SECRET_KEY": "your-paper-secret-key",
+        "ALPACA_PAPER_TRADE": "True"
+      }
+    },
+    "sec-edgar": {
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "-e", "SEC_EDGAR_USER_AGENT=Your Name (your@email.com)", "stefanoamorelli/sec-edgar-mcp:latest"]
+    }
+  }
+}
