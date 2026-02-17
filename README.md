@@ -29,10 +29,48 @@ Expected output:
 ```
 [PAPER MODE] Finance Agent v0.1.0
 Configuration: OK (all required settings present)
-Database: OK (finance_agent.db, schema version 3)
+Database: OK (finance_agent.db, schema version 4)
 Broker API: OK (account ACTIVE, buying power: $X,XXX.XX)
 Market Data API: OK (IEX feed)
+Decision Engine: OK (kill switch: OFF (normal), schema v4)
 ```
+
+## Decision Engine
+
+Generate trade proposals from research signals and market data, with risk controls and human-in-the-loop approval.
+
+```bash
+# Generate proposals for all watchlist companies
+uv run finance-agent engine generate
+
+# Generate for a specific ticker (dry run)
+uv run finance-agent engine generate --ticker NVDA --dry-run
+
+# Review and approve/reject pending proposals
+uv run finance-agent engine review
+
+# Toggle kill switch (halts all generation and approval)
+uv run finance-agent engine killswitch on
+uv run finance-agent engine killswitch off
+
+# View and update risk settings
+uv run finance-agent engine risk
+uv run finance-agent engine risk-set max_position_pct 0.15
+
+# View proposal history and engine status
+uv run finance-agent engine history --ticker NVDA --status approved
+uv run finance-agent engine status
+```
+
+### Risk Controls
+
+| Setting | Default | Range | Description |
+|---------|---------|-------|-------------|
+| `max_position_pct` | 10% | 1-50% | Max single position as % of portfolio |
+| `max_daily_loss_pct` | 5% | 1-20% | Max daily loss before halting |
+| `max_trades_per_day` | 20 | 1-100 | Max filled orders per day |
+| `max_positions_per_symbol` | 2 | 1-10 | Max concurrent positions in one symbol |
+| `min_confidence_threshold` | 0.45 | 0.1-0.9 | Min score to generate a proposal |
 
 ## Market Data
 

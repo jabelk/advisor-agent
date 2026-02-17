@@ -4,6 +4,28 @@ All notable changes to the finance-agent project will be documented in this file
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.0] - 2026-02-16
+
+### Added
+
+- Decision engine: combine research signals + market data into trade proposals
+- Hybrid confidence scoring: signal (0.50) + indicator (0.30) + momentum (0.20) with optional LLM adjustment
+- ATR-based limit price derivation (0.3x-0.7x ATR offset, floor 0.1%, cap 2.0%)
+- 4 risk controls: position size, daily loss, trade count, concentration — auto-adjusts before rejecting
+- Kill switch halts all proposal generation and approval, persists across restarts
+- Proposal lifecycle: generate → review → approve/reject, with lazy expiration at market close
+- `finance-agent engine generate` — score watchlist companies and create trade proposals
+- `finance-agent engine review` — interactive approval/rejection of pending proposals
+- `finance-agent engine killswitch on|off` — toggle emergency halt
+- `finance-agent engine risk` — view risk settings and today's usage
+- `finance-agent engine risk-set <key> <value>` — update risk control parameters
+- `finance-agent engine history` — query proposal history with filters
+- `finance-agent engine status` — engine status summary with account data
+- Decision engine status check in `finance-agent health` (kill switch state, schema version)
+- Full audit trail for all engine operations (generation, risk checks, approval, rejection, kill switch)
+- SQLite schema v4 with 4 new tables: trade_proposal, proposal_source, risk_check_result, engine_state
+- 86 engine-specific unit tests, 249 total passing
+
 ## [0.3.0] - 2026-02-16
 
 ### Added

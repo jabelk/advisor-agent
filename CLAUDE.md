@@ -31,6 +31,7 @@ AI-powered day trading agent. See [Project Constitution](.specify/memory/constit
 - SQLite (extends existing DB with 4 new tables via migration 004) (004-decision-engine)
 
 ## Recent Changes
+- 004-decision-engine: Hybrid confidence scoring, risk controls (4 checks + auto-adjust), kill switch, proposal lifecycle, 7 CLI commands under `engine` group, full audit trail
 - 003-market-data: Added Alpaca historical OHLCV bars, real-time snapshots, technical indicators (SMA, RSI, VWAP), 4 CLI commands under `market` group
 - 002-research-ingestion: Refactored Finnhub to free-tier market signals source; added EarningsCall.biz for transcripts
 - 001-project-scaffolding: Added Python 3.12+ with type hints throughou + alpaca-py (>=0.43), httpx, python-dotenv (local dev only)
