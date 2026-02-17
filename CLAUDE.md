@@ -27,6 +27,8 @@ AI-powered day trading agent. See [Project Constitution](.specify/memory/constit
 - SQLite (extends existing DB with 5 new tables) + filesystem for raw documents (`research_data/`) (002-research-ingestion)
 - Python 3.12+ (existing project) + alpaca-py >=0.43 (existing) — `StockHistoricalDataClient`, `StockBarsRequest`, `StockSnapshotRequest` (003-market-data)
 - SQLite (extends existing DB with 3 new tables: `price_bar`, `technical_indicator`, `market_data_fetch`), schema version 2 → 3 (003-market-data)
+- Python 3.12+ (existing project) + alpaca-py (existing, TradingClient for account/positions), anthropic (existing, for LLM confidence adjustment), pydantic (existing, for structured models) (004-decision-engine)
+- SQLite (extends existing DB with 4 new tables via migration 004) (004-decision-engine)
 
 ## Recent Changes
 - 003-market-data: Added Alpaca historical OHLCV bars, real-time snapshots, technical indicators (SMA, RSI, VWAP), 4 CLI commands under `market` group
