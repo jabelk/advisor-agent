@@ -142,12 +142,17 @@ class EarningsCallSource(BaseSource):
         lines.append("")
 
         # The earningscall library returns a Transcript object with .text or speaker entries
+        has_speaker_content = False
         if hasattr(transcript, "speakers") and transcript.speakers:
             current_section: str | None = None
             for speaker in transcript.speakers:
                 speaker_name = getattr(speaker, "name", "Unknown")
                 speaker_title = getattr(speaker, "title", "")
                 speeches = getattr(speaker, "speeches", [])
+
+                # Skip speakers with no actual speech content
+                if not speeches:
+                    continue
 
                 # Try to detect section from speaker title
                 section = _detect_section(speaker_title)
@@ -165,10 +170,13 @@ class EarningsCallSource(BaseSource):
                     text = str(speech) if not hasattr(speech, "text") else speech.text
                     lines.append(text)
                 lines.append("")
-        elif hasattr(transcript, "text") and transcript.text:
-            lines.append(str(transcript.text))
-        else:
-            lines.append(str(transcript))
+                has_speaker_content = True
+
+        if not has_speaker_content:
+            if hasattr(transcript, "text") and transcript.text:
+                lines.append(str(transcript.text))
+            else:
+                lines.append(str(transcript))
 
         return "\n".join(lines)
 

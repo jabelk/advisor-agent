@@ -385,6 +385,28 @@ class TestEarningsCallSource:
         assert "Jane Doe" in result
         assert "Revenue was strong." in result
 
+    def test_format_transcript_empty_speakers_falls_back_to_text(self) -> None:
+        from finance_agent.data.sources.earningscall_source import EarningsCallSource
+
+        # Bug case: speakers exist but have empty speeches, .text has real content
+        transcript = MagicMock()
+        speaker1 = MagicMock()
+        speaker1.name = "Unknown"
+        speaker1.title = ""
+        speaker1.speeches = []
+        speaker2 = MagicMock()
+        speaker2.name = "Unknown"
+        speaker2.title = ""
+        speaker2.speeches = []
+        transcript.speakers = [speaker1, speaker2]
+        transcript.text = "Full earnings call transcript with real content here."
+
+        result = EarningsCallSource._format_transcript(transcript, "CSCO", 3, 2025)
+        assert "# CSCO Q3 2025" in result
+        assert "Full earnings call transcript" in result
+        # Should NOT contain "Unknown" headers with no content
+        assert "**Unknown**" not in result
+
     def test_recent_quarters(self) -> None:
         from datetime import datetime
 
