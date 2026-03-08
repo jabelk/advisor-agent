@@ -5,9 +5,11 @@ from __future__ import annotations
 import logging
 
 from finance_agent.patterns.models import (
+    ActionType,
     ClarifyingQuestion,
     PatternParseResult,
     RuleSet,
+    StrikeStrategy,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,6 +38,16 @@ Given a user's description of a market pattern they've observed, extract:
 
 5. **Filters**: Any constraints on which stocks the pattern applies to (sector, market cap, volume).
 
+COVERED CALL RECOGNITION:
+- If the description mentions "covered call", "sell calls", "write calls", "sell call against shares", or "monthly income from options", this is a COVERED CALL strategy.
+- For covered calls, set action_type to "sell_call".
+- Trigger type should be "quantitative" with a calendar/time-based trigger (e.g., "monthly cycle").
+- Entry signal: immediate entry (condition="time_delay", value="0", window_days=1).
+- Exit criteria for covered calls: profit_target_pct is the % of premium to close early (e.g., 50% means buy back when premium drops 50%), stop_loss_pct=0 (no stop loss on covered calls — max loss is the stock dropping), max_hold_days is calculated as expiration_days minus roll_threshold (e.g., 30 - 21 = 9).
+- If strike distance is specified as "X% out of the money" or "X% OTM", use the appropriate StrikeStrategy (otm_5 for ~5%, otm_10 for ~10%, custom for other values).
+- CRITICAL: If someone says "sell call" or "sell calls" WITHOUT mentioning owning shares, treat it as a covered call anyway but add a default noting "Treated as covered call — naked calls not supported".
+- Covered call defaults: 5% OTM strike, 30-day expiration, 50% premium profit target, 21 DTE roll threshold.
+
 IMPORTANT RULES:
 - If a field is not specified, apply sensible defaults and note them.
 - Defaults: profit target 20%, stop loss 10%, ATM strike, 30-day expiration, no max hold.
@@ -55,6 +67,69 @@ Return a PatternParseResult with:
 - clarifying_questions: questions if incomplete (max 3)
 - defaults_applied: list of defaults you applied (e.g., "Profit target: 20% (not specified)")
 """
+
+
+def _apply_covered_call_defaults(result: PatternParseResult) -> PatternParseResult:
+    """Post-process parsed result: ensure covered call defaults are applied and logged.
+
+    When action_type is sell_call, applies any missing defaults:
+    - 5% OTM strike (otm_5)
+    - 30-day expiration
+    - 50% premium profit target
+    - 21-day roll threshold (max_hold_days = expiration - 21)
+    - No stop loss (0%)
+    """
+    if not result.is_complete or not result.rule_set:
+        return result
+
+    action = result.rule_set.action
+    if action.action_type != ActionType.SELL_CALL:
+        return result
+
+    defaults_applied = list(result.defaults_applied)
+
+    # Strike strategy: default to 5% OTM
+    if action.strike_strategy == StrikeStrategy.ATM:
+        action.strike_strategy = StrikeStrategy.OTM_5
+        defaults_applied.append("Strike: 5% OTM (covered call default)")
+        logger.info("Applied covered call default: 5%% OTM strike")
+
+    # Expiration: default to 30 days
+    if action.expiration_days != 30:
+        # Only override if it looks like a generic default (e.g., 0 or unset)
+        pass  # Keep user-specified expiration
+    elif "expiration" not in " ".join(defaults_applied).lower():
+        defaults_applied.append("Expiration: 30 days (covered call default)")
+        logger.info("Applied covered call default: 30-day expiration")
+
+    # Exit criteria defaults for covered calls
+    exit_criteria = result.rule_set.exit_criteria
+
+    # Premium profit target: 50% (means buy back when premium drops to 50% of initial)
+    if exit_criteria.profit_target_pct == 20.0:  # Still at generic default
+        exit_criteria.profit_target_pct = 50.0
+        defaults_applied.append("Premium profit target: 50% (covered call default — buy back at 50% premium decay)")
+        logger.info("Applied covered call default: 50%% premium profit target")
+
+    # Stop loss: 0% for covered calls (max loss is stock dropping)
+    if exit_criteria.stop_loss_pct == 10.0:  # Still at generic default
+        exit_criteria.stop_loss_pct = 0.0
+        defaults_applied.append("Stop loss: 0% (covered call — no stop loss on short call)")
+        logger.info("Applied covered call default: 0%% stop loss")
+
+    # Max hold: expiration_days - 21 (roll threshold)
+    roll_threshold = 21
+    expected_max_hold = action.expiration_days - roll_threshold
+    if exit_criteria.max_hold_days is None or exit_criteria.max_hold_days == expected_max_hold:
+        exit_criteria.max_hold_days = expected_max_hold
+        if "roll" not in " ".join(defaults_applied).lower():
+            defaults_applied.append(
+                f"Roll threshold: {roll_threshold} DTE (max hold = {expected_max_hold} days)"
+            )
+            logger.info("Applied covered call default: %d DTE roll threshold", roll_threshold)
+
+    result.defaults_applied = defaults_applied
+    return result
 
 
 def parse_pattern_description(
@@ -119,7 +194,8 @@ def parse_pattern_description(
     for block in response.content:
         if block.type == "tool_use" and block.name == "output_pattern":
             try:
-                return PatternParseResult.model_validate(block.input)
+                result = PatternParseResult.model_validate(block.input)
+                return _apply_covered_call_defaults(result)
             except Exception as e:
                 logger.error("Failed to parse Claude response: %s", e)
                 return PatternParseResult(

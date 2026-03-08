@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from finance_agent.patterns.models import (
     BacktestReport,
     BacktestTrade,
+    CoveredCallCycle,
+    CoveredCallReport,
     RegimePeriod,
     RuleSet,
 )
@@ -17,6 +19,9 @@ logger = logging.getLogger(__name__)
 
 # Minimum trades for statistical significance
 MIN_SAMPLE_SIZE = 30
+
+# Minimum monthly cycles for covered call significance
+MIN_CC_CYCLES = 6
 
 # Rolling window size for regime detection (in trades)
 REGIME_WINDOW_SIZE = 10
@@ -84,6 +89,303 @@ def run_backtest(
         sample_size_warning=trade_count < MIN_SAMPLE_SIZE,
         regimes=regimes,
         trades=all_trades,
+    )
+
+
+def run_covered_call_backtest(
+    pattern_id: int,
+    rule_set: RuleSet,
+    bars: list[dict],
+    ticker: str,
+    start_date: str,
+    end_date: str,
+    shares: int = 100,
+) -> CoveredCallReport:
+    """Run a covered call backtest: simulate monthly sell-call cycles over historical data.
+
+    Iterates through monthly cycles:
+    1. At cycle start, calculate strike from OTM percentage
+    2. Estimate premium via Black-Scholes with historical volatility
+    3. Simulate through expiration checking for assignment, early close, or roll
+
+    Args:
+        pattern_id: ID of the pattern being backtested
+        rule_set: Parsed trading rules (must be sell_call action type)
+        bars: Historical price bars for the ticker (list of dicts with close, high, low, bar_timestamp)
+        ticker: Stock ticker symbol
+        start_date: Backtest start date (YYYY-MM-DD)
+        end_date: Backtest end date (YYYY-MM-DD)
+        shares: Number of shares owned (default: 100)
+
+    Returns:
+        CoveredCallReport with cycle-by-cycle results and aggregate metrics
+    """
+    from finance_agent.patterns.option_pricing import (
+        calculate_historical_volatility,
+        estimate_call_premium,
+        estimate_premium_at_age,
+    )
+
+    if not bars:
+        return _empty_cc_report(pattern_id, ticker, shares, start_date, end_date)
+
+    # Extract parameters from rule_set
+    action = rule_set.action
+    exit_criteria = rule_set.exit_criteria
+
+    # Strike distance: derive from strike_strategy
+    strike_pct_otm = _get_otm_pct(action)
+    expiration_days = action.expiration_days  # typically 30
+    premium_profit_target = exit_criteria.profit_target_pct / 100.0  # e.g., 0.50 for 50%
+    roll_threshold_dte = expiration_days - (exit_criteria.max_hold_days or expiration_days)
+    if roll_threshold_dte <= 0:
+        roll_threshold_dte = 21  # default
+
+    contracts = shares // 100
+
+    # Filter bars to date range
+    filtered_bars = [
+        b for b in bars
+        if start_date <= b["bar_timestamp"][:10] <= end_date
+    ]
+
+    if len(filtered_bars) < 22:  # Need at least ~1 month of data
+        return _empty_cc_report(pattern_id, ticker, shares, start_date, end_date)
+
+    cycles: list[CoveredCallCycle] = []
+    cycle_number = 0
+    i = 0  # Index into filtered_bars
+
+    while i < len(filtered_bars) - 1:
+        cycle_number += 1
+        cycle_start_idx = i
+        cycle_start_bar = filtered_bars[i]
+        stock_entry_price = cycle_start_bar["close"]
+        cycle_start_date = cycle_start_bar["bar_timestamp"][:10]
+
+        # Calculate historical volatility from bars up to this point
+        # Use all available bars (not just filtered) for volatility calculation
+        bars_up_to_now = [
+            b for b in bars
+            if b["bar_timestamp"][:10] <= cycle_start_date
+        ]
+        hist_vol = calculate_historical_volatility(bars_up_to_now, lookback_days=20)
+
+        # Calculate strike price
+        call_strike = stock_entry_price * (1 + strike_pct_otm)
+
+        # Estimate premium
+        call_premium_per_share = estimate_call_premium(
+            spot_price=stock_entry_price,
+            strike_price=call_strike,
+            days_to_expiration=expiration_days,
+            historical_volatility=hist_vol,
+        )
+
+        # Calculate expiration date
+        exp_date = datetime.strptime(cycle_start_date, "%Y-%m-%d") + timedelta(days=expiration_days)
+        call_expiration_date = exp_date.strftime("%Y-%m-%d")
+
+        # Simulate through the cycle
+        outcome = None
+        cycle_end_idx = cycle_start_idx
+        stock_price_at_exit = stock_entry_price
+        days_in_cycle = 0
+
+        for j in range(cycle_start_idx + 1, len(filtered_bars)):
+            bar = filtered_bars[j]
+            bar_date = bar["bar_timestamp"][:10]
+            days_in_cycle += 1
+            stock_price_at_exit = bar["close"]
+
+            # Days to expiration
+            bar_dt = datetime.strptime(bar_date, "%Y-%m-%d")
+            dte = (exp_date - bar_dt).days
+
+            # Check early close: premium profit target
+            # Estimate current premium value using time decay
+            current_premium = estimate_premium_at_age(
+                initial_premium=call_premium_per_share,
+                days_elapsed=days_in_cycle,
+                total_days=expiration_days,
+            )
+            # Also factor in how far stock moved from strike (if stock dropped, premium drops more)
+            if stock_price_at_exit < call_strike:
+                # OTM — premium decays faster
+                moneyness_factor = max(0.0, 1.0 - (call_strike - stock_price_at_exit) / call_strike)
+                current_premium *= moneyness_factor
+
+            premium_decay_pct = 1.0 - (current_premium / call_premium_per_share) if call_premium_per_share > 0 else 0
+            if premium_decay_pct >= premium_profit_target:
+                outcome = "closed_early"
+                cycle_end_idx = j
+                break
+
+            # Check roll threshold
+            if 0 < dte <= roll_threshold_dte:
+                outcome = "rolled"
+                cycle_end_idx = j
+                break
+
+            # Check expiration
+            if dte <= 0 or bar_date >= call_expiration_date:
+                if stock_price_at_exit >= call_strike:
+                    outcome = "assigned"
+                else:
+                    outcome = "expired_worthless"
+                cycle_end_idx = j
+                break
+
+            cycle_end_idx = j
+
+        # If we ran out of bars without reaching expiration
+        if outcome is None:
+            if stock_price_at_exit >= call_strike:
+                outcome = "assigned"
+            else:
+                outcome = "expired_worthless"
+
+        cycle_end_date = filtered_bars[cycle_end_idx]["bar_timestamp"][:10]
+
+        # Calculate returns
+        premium_return_pct = (call_premium_per_share / stock_entry_price) * 100.0
+
+        # Stock gain/loss
+        stock_return = stock_price_at_exit - stock_entry_price
+        if outcome == "assigned":
+            # Cap stock gain at strike
+            stock_return = min(stock_return, call_strike - stock_entry_price)
+
+        total_return_per_share = call_premium_per_share + stock_return
+        total_return_pct = (total_return_per_share / stock_entry_price) * 100.0
+
+        # Capped upside: gains forfeited due to assignment
+        capped_upside_pct = 0.0
+        if outcome == "assigned" and stock_price_at_exit > call_strike:
+            forfeited = stock_price_at_exit - call_strike
+            capped_upside_pct = (forfeited / stock_entry_price) * 100.0
+
+        cycles.append(CoveredCallCycle(
+            ticker=ticker,
+            cycle_number=cycle_number,
+            stock_entry_price=stock_entry_price,
+            call_strike=round(call_strike, 2),
+            call_premium=round(call_premium_per_share * contracts * 100, 2),
+            call_expiration_date=call_expiration_date,
+            cycle_start_date=cycle_start_date,
+            cycle_end_date=cycle_end_date,
+            stock_price_at_exit=round(stock_price_at_exit, 2),
+            outcome=outcome,
+            premium_return_pct=round(premium_return_pct, 4),
+            total_return_pct=round(total_return_pct, 4),
+            capped_upside_pct=round(capped_upside_pct, 4),
+            historical_volatility=round(hist_vol, 4),
+        ))
+
+        # Advance to next cycle start (day after cycle end)
+        i = cycle_end_idx + 1
+
+    # Aggregate metrics
+    total_premium = sum(c.call_premium for c in cycles)
+    avg_premium = total_premium / len(cycles) if cycles else 0.0
+    assignment_count = sum(1 for c in cycles if c.outcome == "assigned")
+    closed_early_count = sum(1 for c in cycles if c.outcome == "closed_early")
+    rolled_count = sum(1 for c in cycles if c.outcome == "rolled")
+    expired_count = sum(1 for c in cycles if c.outcome == "expired_worthless")
+
+    # Annualized income yield
+    if cycles and cycles[0].stock_entry_price > 0:
+        total_days = (
+            datetime.strptime(end_date, "%Y-%m-%d")
+            - datetime.strptime(start_date, "%Y-%m-%d")
+        ).days
+        years = total_days / 365.0 if total_days > 0 else 1.0
+        total_premium_per_share = sum(c.call_premium for c in cycles) / shares if shares > 0 else 0
+        annualized_yield = (total_premium_per_share / cycles[0].stock_entry_price) * (1 / years) * 100
+    else:
+        annualized_yield = 0.0
+
+    # Buy-and-hold comparison
+    if filtered_bars:
+        bh_start_price = filtered_bars[0]["close"]
+        bh_end_price = filtered_bars[-1]["close"]
+        buy_and_hold_return = ((bh_end_price - bh_start_price) / bh_start_price) * 100 if bh_start_price > 0 else 0.0
+    else:
+        buy_and_hold_return = 0.0
+
+    # Covered call total return: sum of all cycle total returns
+    cc_total_return = sum(c.total_return_pct or 0.0 for c in cycles)
+    capped_upside_cost = sum(c.capped_upside_pct or 0.0 for c in cycles)
+    # Convert capped upside % to dollars
+    capped_upside_dollars = 0.0
+    for c in cycles:
+        if c.capped_upside_pct and c.capped_upside_pct > 0:
+            capped_upside_dollars += (c.capped_upside_pct / 100.0) * c.stock_entry_price * shares
+
+    sample_size_warning = len(cycles) < MIN_CC_CYCLES
+
+    return CoveredCallReport(
+        pattern_id=pattern_id,
+        ticker=ticker,
+        shares=shares,
+        date_range_start=start_date,
+        date_range_end=end_date,
+        cycle_count=len(cycles),
+        total_premium_collected=round(total_premium, 2),
+        avg_premium_per_cycle=round(avg_premium, 2),
+        annualized_income_yield_pct=round(annualized_yield, 2),
+        assignment_count=assignment_count,
+        assignment_frequency_pct=round(assignment_count / len(cycles) * 100, 1) if cycles else 0.0,
+        closed_early_count=closed_early_count,
+        rolled_count=rolled_count,
+        expired_worthless_count=expired_count,
+        buy_and_hold_return_pct=round(buy_and_hold_return, 2),
+        covered_call_return_pct=round(cc_total_return, 2),
+        capped_upside_cost=round(capped_upside_dollars, 2),
+        sample_size_warning=sample_size_warning,
+        cycles=cycles,
+    )
+
+
+def _get_otm_pct(action) -> float:
+    """Get OTM percentage from strike strategy."""
+    if action.strike_strategy.value == "otm_5":
+        return 0.05
+    elif action.strike_strategy.value == "otm_10":
+        return 0.10
+    elif action.strike_strategy.value == "itm_5":
+        return -0.05
+    elif action.strike_strategy.value == "atm":
+        return 0.0
+    elif action.strike_strategy.value == "custom" and action.custom_strike_offset_pct is not None:
+        return action.custom_strike_offset_pct / 100.0
+    return 0.05  # default 5% OTM
+
+
+def _empty_cc_report(
+    pattern_id: int, ticker: str, shares: int, start_date: str, end_date: str,
+) -> CoveredCallReport:
+    """Return an empty covered call report when no data is available."""
+    return CoveredCallReport(
+        pattern_id=pattern_id,
+        ticker=ticker,
+        shares=shares,
+        date_range_start=start_date,
+        date_range_end=end_date,
+        cycle_count=0,
+        total_premium_collected=0.0,
+        avg_premium_per_cycle=0.0,
+        annualized_income_yield_pct=0.0,
+        assignment_count=0,
+        assignment_frequency_pct=0.0,
+        closed_early_count=0,
+        rolled_count=0,
+        expired_worthless_count=0,
+        buy_and_hold_return_pct=0.0,
+        covered_call_return_pct=0.0,
+        capped_upside_cost=0.0,
+        sample_size_warning=True,
+        cycles=[],
     )
 
 
