@@ -1,56 +1,59 @@
-# Finance Agent
+# Advisor Agent
 
-Research-powered investment system. See [Project Constitution](.specify/memory/constitution.md) for core principles, technology stack, and development workflow.
+AI-powered productivity and research tools for financial advisors. Forked from [finance-agent](https://github.com/jabelk/finance-agent).
 
-## Key Principles (from Constitution v1.5.0)
+See [Project Constitution](.specify/memory/constitution.md) for core principles, technology stack, and development workflow.
 
-1. **Safety First** — Paper trading by default, kill switch + risk limits persisted in DB, human approves all trades
+## Target User
+
+**Jordan McElroy** — Financial Consultant at Charles Schwab, Truckee CA office (aiming for Reno office). Generalist advisor who manages client relationships and pulls in specialists. Series 7/63/65 licensed. US Army veteran (Blackhawk crew chief, Afghanistan). Currently uses AI for basic productivity (equations, simple tasks). Wants to level up with AI for both personal investing and professional productivity.
+
+## Key Principles (from Constitution v1.0.0)
+
+1. **Client Data Isolation** — Personal investing tools are completely separated from any client-related work. No client PII ever touches this system.
 2. **Research-Driven** — Every analysis must cite data sources; bull/bear perspectives before any signal; human decides
-3. **Modular Architecture — Less Code, More Context** — Use MCP servers, systemd timers, existing tools. Only build what's truly custom.
-4. **Audit Everything** — Append-only logging of all signals, decisions, and safety state changes
-5. **Security by Design** — No secrets in code/logs, separate paper/live keys, restricted container networking
+3. **Advisor Productivity** — Plain language interfaces for report generation, data queries, pattern testing. Reduce friction, increase knowledge.
+4. **Safety First** — Paper trading by default for pattern testing. Human approves all trades.
+5. **Security by Design** — No secrets in code/logs, separate paper/live keys
+
+## Tracks
+
+### Track 1: Personal Investing & Pattern Lab
+- Alpaca Markets paper trading (inherited from finance-agent)
+- Pattern description → rule codification → backtesting
+- Options strategy testing
+- Market research pipeline (inherited from finance-agent)
+
+### Track 2: Advisor Productivity (Future)
+- Salesforce developer sandbox for experimentation
+- Plain language → reports, SOQL queries, workflow automation
+- Dual approach: Salesforce Agentforce/Einstein + Claude-based agents
+- Meeting prep, client briefing generation
+- Market commentary and talking points
 
 ## Development
 
 - Python 3.12+, uv for packages, pytest for testing
 - Alpaca Markets: MCP server for interactive trading, alpaca-py SDK for market data API
-- Data: SEC EDGAR (edgartools), Finnhub (market signals), EarningsCall.biz (transcripts), RSS feeds
+- Data: SEC EDGAR (edgartools), Finnhub (market signals), RSS feeds
 - Storage: SQLite (WAL mode) + filesystem
 - All features via spec-kit: specify → plan → tasks → implement
 - Feature branches merged to `main` via PR
-- See [Quality Gates](.specify/memory/constitution.md#quality-gates) in constitution
 
-## Architecture
+## Inherited from finance-agent
 
-```
-Intel NUC (always-on):
-  systemd timers → Python agents → SQLite + research_data/
-  NATS (event messaging) | ntfy.sh (notifications) | FastMCP (research DB)
+This project started as a copy of finance-agent and inherits:
+- Market data ingestion pipeline (SEC EDGAR, Finnhub)
+- SQLite storage patterns (WAL mode, migrations)
+- MCP server setup for Claude Desktop
+- Safety module (kill switch, risk limits)
+- Research/analysis framework
+- spec-kit workflow and commands
 
-Claude Desktop (on-demand):
-  Alpaca MCP (trading) | SEC EDGAR MCP (filings) | Research DB MCP (via mcp-remote)
-```
+## What's New (Planned)
 
-- **data/** — Filings, transcripts, news, market signals from 6+ sources
-- **research/** — LLM-powered analysis, signal generation, pipeline orchestration
-- **safety/** — Kill switch and risk limit storage
-- **mcp/** — Custom FastMCP server exposing research DB to Claude Desktop (planned)
-- **agents/** — Monitor, scanner, research, briefing agents triggered by systemd (planned)
-
-## Active Technologies
-- Python 3.12+ with type hints throughout + alpaca-py (>=0.43), httpx (001-project-scaffolding)
-- SQLite (WAL mode, PRAGMA user_version migrations, schema v6) (001-project-scaffolding, 007-architecture-cleanup)
-- edgartools>=5.16, finnhub-python>=2.4, earningscall>=1.4, anthropic>=0.45, feedparser>=6.0, beautifulsoup4>=4.12, pydantic>=2.0 (002-research-ingestion)
-- Filesystem for raw documents (`research_data/`) (002-research-ingestion)
-- Orchestration: systemd timers + NATS (not n8n); notifications via ntfy.sh (008-system-architecture)
-- MCP Servers: Alpaca (trading), sec-edgar-mcp (filings), custom FastMCP (research DB) (008-system-architecture)
-- Agent Framework: Claude Agent SDK + Pydantic AI for structured outputs (008-system-architecture)
-- New data sources planned: FRED, Tiingo, SEC RSS, 13F, Form 4, Quiver Quantitative (008-system-architecture)
-- Python 3.12+ (existing codebase) + finnhub-python>=2.4 (existing), earningscall>=1.4 (new), anthropic (existing), pydantic (existing) (009-finnhub-earningscall-refactor)
-- SQLite (existing tables — no schema changes) + filesystem for raw documents (009-finnhub-earningscall-refactor)
-- Python 3.12+ (existing codebase) + `fastmcp>=2.14,<3` (new); sqlite3, pathlib (stdlib); existing `finance_agent` package (010-mcp-integration)
-- SQLite read-only access (`file:{path}?mode=ro` URI), filesystem for document conten (010-mcp-integration)
-
-## Recent Changes
-- 007-architecture-cleanup: Removed execution/engine/market layers (~3,500 lines). Extracted safety module. Migration 006 drops 8 tables, renames engine_state → safety_state. CLI streamlined. Architecture pivot to research-first system.
-- 006-architecture-research: Architecture pivot — research-first, human-decides system. Updated constitution to v1.3.0.
+- Pattern Lab: describe trading patterns in plain text → codify → test via Alpaca paper trading
+- Options support via Alpaca
+- Salesforce integration (developer sandbox)
+- Advisor-specific research tools (client meeting prep, market commentary)
+- A/B testing framework for pattern strategies

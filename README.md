@@ -1,6 +1,14 @@
-# Finance Agent
+# Advisor Agent
 
-Research-powered investment system using Alpaca Markets.
+AI-powered productivity and research tools for financial advisors. Forked from [finance-agent](https://github.com/jabelk/finance-agent).
+
+## Overview
+
+Two-track system for a Charles Schwab financial consultant:
+
+1. **Personal Investing & Pattern Lab** — Describe market patterns in plain text, codify them into rules, and test them via Alpaca paper trading. Includes options strategy testing and the full research pipeline from finance-agent.
+
+2. **Advisor Productivity** (future) — Salesforce developer sandbox integration, plain language report generation, meeting prep tools, market commentary generation.
 
 ## Prerequisites
 
@@ -12,8 +20,8 @@ Research-powered investment system using Alpaca Markets.
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/jabelk/finance-agent.git
-cd finance-agent
+git clone https://github.com/jabelk/advisor-agent.git
+cd advisor-agent
 uv sync
 
 # 2. Configure environment
@@ -25,98 +33,26 @@ chmod 600 .env
 uv run finance-agent health
 ```
 
-Expected output:
-```
-[PAPER MODE] Finance Agent v0.7.0
-Configuration: OK (all required settings present)
-Database: OK (finance_agent.db, schema version 6)
-Research Pipeline: OK (last run: 2026-02-17T14:30)
-```
+## Research Pipeline (Inherited)
 
-## Research Pipeline
-
-The research layer ingests data from multiple sources, analyzes documents with Claude, and produces structured research signals.
-
-```bash
-# Add companies to your watchlist
-uv run finance-agent watchlist add NVDA
-uv run finance-agent watchlist add AAPL
-
-# Add notable investors to track
-uv run finance-agent investors add "Berkshire Hathaway" 0001067983
-
-# Run research ingestion and analysis
-uv run finance-agent research run
-
-# Run for a specific ticker or source
-uv run finance-agent research run --ticker NVDA --source sec
-
-# Query research signals
-uv run finance-agent signals NVDA --type sentiment
-uv run finance-agent signals NVDA --source sec_filing --since 2025-01-01
-
-# View company research profile
-uv run finance-agent profile NVDA
-```
-
-### Data Sources
-
-| Source | API Key Required | What it ingests |
-|--------|-----------------|-----------------|
-| SEC EDGAR | `EDGAR_IDENTITY` | 10-K, 10-Q, 8-K filings |
-| EarningsCall.biz | `EARNINGSCALL_API_KEY` | Earnings call transcripts with speaker attribution |
-| Finnhub | `FINNHUB_API_KEY` | Analyst ratings, earnings history, insider activity, news |
-| Acquired Podcast | None (RSS) | Episode metadata and notes |
-| Stratechery | `STRATECHERY_FEED_URL` | Analysis articles and daily updates |
-| 13F Holdings | `EDGAR_IDENTITY` | Institutional investor filings |
+See [finance-agent](https://github.com/jabelk/finance-agent) for the full research pipeline documentation. This project inherits all data ingestion, analysis, and signal generation capabilities.
 
 ## Development
 
 ```bash
-# Run unit tests (no API keys needed)
+# Run unit tests
 uv run pytest tests/unit/
 
-# Run integration tests (requires paper trading API keys in .env)
+# Run integration tests (requires API keys in .env)
 uv run pytest tests/integration/
-
-# All tests with coverage
-uv run pytest --cov=finance_agent
 
 # Lint and type check
 uv run ruff check src/ tests/
 uv run mypy src/
 ```
 
-## Docker Deployment
-
-See [quickstart.md](specs/001-project-scaffolding/quickstart.md) for Docker and Intel NUC deployment instructions.
-
-## Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `ALPACA_PAPER_API_KEY` | Yes | - | Paper trading API key ID |
-| `ALPACA_PAPER_SECRET_KEY` | Yes | - | Paper trading secret key |
-| `ALPACA_LIVE_API_KEY` | No | - | Live trading API key ID |
-| `ALPACA_LIVE_SECRET_KEY` | No | - | Live trading secret key |
-| `TRADING_MODE` | No | `paper` | `paper` or `live` |
-| `DB_PATH` | No | `data/finance_agent.db` | SQLite database path |
-| `RESEARCH_DATA_DIR` | No | `research_data` | Research artifact storage path |
-| `ANTHROPIC_API_KEY` | No | - | Claude API key for LLM analysis |
-| `EDGAR_IDENTITY` | No | - | SEC EDGAR identity (`Name email@example.com`) |
-| `FINNHUB_API_KEY` | No | - | Finnhub API key for market signals (free tier) |
-| `EARNINGSCALL_API_KEY` | No | - | EarningsCall.biz API key for transcripts |
-| `STRATECHERY_FEED_URL` | No | - | Stratechery premium RSS feed URL |
-| `ASSEMBLYAI_API_KEY` | No | - | AssemblyAI key for podcast transcription |
-| `LOG_LEVEL` | No | `INFO` | Logging level |
-
 ## Architecture
 
-The codebase follows a modular layered architecture:
-
-- **data/** - Filings, transcripts, news ingestion from multiple sources
-- **research/** - LLM-powered analysis and structured signal generation
-- **safety/** - Kill switch and risk limit storage (guardrails for future execution)
-- **audit/** - Append-only event logging
-
 See the [project constitution](.specify/memory/constitution.md) for guiding principles.
+
+**Important**: This system is for personal investing research and advisor productivity experimentation only. No client PII is stored or processed. See Constitution Principle I (Client Data Isolation).
