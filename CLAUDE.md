@@ -82,6 +82,8 @@ This project started as a copy of finance-agent and inherits:
 - SQLite (WAL mode) — extends existing Pattern Lab tables, adds covered_call_cycle table (012-covered-call-strategy)
 - Python 3.12+ + alpaca-py (market data), anthropic (pattern parsing), pydantic (models) (013-pharma-news-dip)
 - SQLite (WAL mode) — no new tables needed, extends existing backtest/trade models (013-pharma-news-dip)
+- Python 3.12+ with type hints + alpaca-py (market data), pydantic (models), scipy (statistical tests — Fisher's exact, Welch's t-test) (014-pattern-lab-extensions)
+- SQLite (WAL mode) — extends existing backtest_result table, no new tables (014-pattern-lab-extensions)
 
 ## Recent Changes
 - 011-pattern-lab: Added Python 3.12+ + alpaca-py (broker + market data), anthropic (Claude for pattern parsing), pydantic (structured models), fastmcp (MCP tool exposure)
