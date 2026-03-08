@@ -93,6 +93,7 @@ class PatternMonitor:
             from alpaca.data.historical import StockHistoricalDataClient
             from alpaca.data.requests import StockBarsRequest
             from alpaca.data.timeframe import TimeFrame
+            from alpaca.data.enums import DataFeed
         except ImportError:
             logger.error("alpaca-py required for live monitoring")
             return False
@@ -112,6 +113,7 @@ class PatternMonitor:
             timeframe=TimeFrame.Day,
             start=start,
             end=end,
+            feed=DataFeed.IEX,
         )
 
         try:
@@ -266,12 +268,16 @@ class PatternMonitor:
             try:
                 from alpaca.data.historical import StockHistoricalDataClient
                 from alpaca.data.requests import StockLatestBarRequest
+                from alpaca.data.enums import DataFeed
 
                 client = StockHistoricalDataClient(
                     self.settings.active_api_key,
                     self.settings.active_secret_key,
                 )
-                request = StockLatestBarRequest(symbol_or_symbols=ticker)
+                request = StockLatestBarRequest(
+                    symbol_or_symbols=ticker,
+                    feed=DataFeed.IEX,
+                )
                 response = client.get_stock_latest_bar(request)
 
                 if ticker not in response:
