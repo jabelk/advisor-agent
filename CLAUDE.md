@@ -6,7 +6,20 @@ See [Project Constitution](.specify/memory/constitution.md) for core principles,
 
 ## Target User
 
-**Jordan McElroy** — Financial Consultant at Charles Schwab, Truckee CA office (aiming for Reno office). Generalist advisor who manages client relationships and pulls in specialists. Series 7/63/65 licensed. US Army veteran (Blackhawk crew chief, Afghanistan). Currently uses AI for basic productivity (equations, simple tasks). Wants to level up with AI for both personal investing and professional productivity.
+**Jordan McElroy** — Financial Consultant at Charles Schwab, Truckee CA office (aiming for Reno office). Generalist advisor who manages client relationships and pulls in specialists. Series 7/63/65 licensed. US Army veteran (Blackhawk crew chief, Afghanistan, Operation Freedom's Sentinel — Personnel Recovery Team). Currently uses AI for basic productivity (equations, simple tasks). Wants to level up with AI for both personal investing and professional productivity.
+
+LinkedIn reference docs (gitignored, not committed):
+- `reference/Jordan McElroy _ LinkedIn.pdf` — Full profile
+- `reference/Experience _ Jordan McElroy _ LinkedIn.pdf` — Detailed experience
+- `reference/Activity _ Jordan McElroy _ LinkedIn.pdf` — Posts and activity
+- `reference/Activity _ Jordan McElroy _ LinkedIn-comments.pdf` — Comments
+
+**Schwab career progression** (4 yrs 9 mos total):
+- Client Service Specialist (Jun 2021 – Aug 2024)
+- Associate Financial Consultant (Aug 2024 – Oct 2025) — earned Series 65, Series 63
+- Financial Consultant (Jul 2025 – present)
+
+**Other background**: Kaplan University (2014–2016). Biathlete — US Biathlon team, 2013 US Junior World Championship, CISM team 2014–2015, competed across 3 continents. Ski coach at Auburn Ski Club (biathlon/racing). Heavy equipment operator.
 
 ## Key Principles (from Constitution v1.0.0)
 
@@ -25,11 +38,13 @@ See [Project Constitution](.specify/memory/constitution.md) for core principles,
 - Market research pipeline (inherited from finance-agent)
 
 ### Track 2: Advisor Productivity (Future)
-- Salesforce developer sandbox for experimentation
-- Plain language → reports, SOQL queries, workflow automation
-- Dual approach: Salesforce Agentforce/Einstein + Claude-based agents
-- Meeting prep, client briefing generation
+- **Note**: Jordan works at Charles Schwab, which uses its own proprietary platforms (Schwab Advisor Center, StreetSmart Edge, Schwab Advisor Services). Schwab does NOT use Salesforce as its primary CRM — confirm with Jordan what tools he actually uses day-to-day.
+- Salesforce developer sandbox as a **learning/experimentation platform** — not mirroring his Schwab work environment, but building transferable CRM automation skills
+- Dual approach: Salesforce Agentforce/Einstein + Claude-based agents (portable patterns that could apply to any CRM)
+- Plain language → reports, SOQL queries, workflow automation (sandbox with synthetic data only)
+- Meeting prep, client briefing generation (using public market data, never client data)
 - Market commentary and talking points
+- Schwab-specific tools research: understand what Jordan can actually automate within Schwab's ecosystem vs. what needs to be built externally
 
 ## Development
 
@@ -53,7 +68,16 @@ This project started as a copy of finance-agent and inherits:
 ## What's New (Planned)
 
 - Pattern Lab: describe trading patterns in plain text → codify → test via Alpaca paper trading
-- Options support via Alpaca
-- Salesforce integration (developer sandbox)
-- Advisor-specific research tools (client meeting prep, market commentary)
+  - Example: "pharma company has big news → stock spikes → buy options on the dip within 2 days" — Jordan observed this working for ~3 months in 2025, then it stopped. Pattern Lab should help test why/when patterns work and when they break down.
+- Options support via Alpaca (Jordan is actively trading options personally)
+- Salesforce developer sandbox (learning platform, not mirroring Schwab tools)
+- Schwab ecosystem research: what can be automated within Schwab's actual advisor tools?
+- Advisor-specific research tools (meeting prep, market commentary)
 - A/B testing framework for pattern strategies
+
+## Active Technologies
+- Python 3.12+ + alpaca-py (broker + market data), anthropic (Claude for pattern parsing), pydantic (structured models), fastmcp (MCP tool exposure) (011-pattern-lab)
+- SQLite (WAL mode) — new migration 007 adds pattern tables alongside existing schema (011-pattern-lab)
+
+## Recent Changes
+- 011-pattern-lab: Added Python 3.12+ + alpaca-py (broker + market data), anthropic (Claude for pattern parsing), pydantic (structured models), fastmcp (MCP tool exposure)

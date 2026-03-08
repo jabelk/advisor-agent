@@ -32,5 +32,8 @@ research_data/
 .DS_Store
 Thumbs.db
 
+# Reference docs (personal LinkedIn profiles, etc.)
+reference/
+
 # Claude Code
 .claude/settings.local.json

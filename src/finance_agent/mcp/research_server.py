@@ -315,6 +315,150 @@ def read_document(document_id: int) -> dict[str, Any]:
         conn.close()
 
 
+# --- Tool: list_patterns (Pattern Lab) ---
+
+
+@mcp.tool()
+def list_patterns(
+    status: str = "",
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """List trading patterns from Pattern Lab with status and key metrics.
+
+    Returns pattern name, status, creation date, and latest backtest metrics if available.
+    Filter by status: draft, backtested, paper_trading, retired.
+    """
+    conn = _get_readonly_conn()
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, name, description, status, created_at, updated_at, retired_at
+            FROM trading_pattern
+            WHERE (? = '' OR status = ?)
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (status, status, limit),
+        ).fetchall()
+        return _rows_to_dicts(rows)
+    finally:
+        conn.close()
+
+
+@mcp.tool()
+def get_pattern_detail(pattern_id: int) -> dict[str, Any]:
+    """Get full details for a specific trading pattern including rules and performance.
+
+    Returns pattern definition, parsed rules, backtest history, and paper trade records.
+    """
+    conn = _get_readonly_conn()
+    try:
+        pattern = conn.execute(
+            "SELECT * FROM trading_pattern WHERE id = ?", (pattern_id,)
+        ).fetchone()
+        if not pattern:
+            return {"error": f"Pattern #{pattern_id} not found"}
+
+        result = dict(pattern)
+        try:
+            result["rule_set"] = json.loads(result.pop("rule_set_json"))
+        except (json.JSONDecodeError, TypeError):
+            result["rule_set"] = None
+
+        # Latest backtest
+        bt = conn.execute(
+            "SELECT * FROM backtest_result WHERE pattern_id = ? ORDER BY created_at DESC LIMIT 1",
+            (pattern_id,),
+        ).fetchone()
+        result["latest_backtest"] = dict(bt) if bt else None
+
+        # Paper trade count
+        pt_row = conn.execute(
+            "SELECT COUNT(*) as cnt FROM paper_trade WHERE pattern_id = ?",
+            (pattern_id,),
+        ).fetchone()
+        result["paper_trade_count"] = pt_row["cnt"] if pt_row else 0
+
+        return result
+    finally:
+        conn.close()
+
+
+@mcp.tool()
+def get_backtest_results(pattern_id: int) -> list[dict[str, Any]]:
+    """Get backtest results for a trading pattern including regime analysis.
+
+    Returns all backtest runs with performance metrics, regime periods, and trade details.
+    """
+    conn = _get_readonly_conn()
+    try:
+        rows = conn.execute(
+            """
+            SELECT * FROM backtest_result
+            WHERE pattern_id = ?
+            ORDER BY created_at DESC
+            """,
+            (pattern_id,),
+        ).fetchall()
+
+        results = []
+        for row in rows:
+            d = dict(row)
+            if d.get("regime_analysis_json"):
+                try:
+                    d["regimes"] = json.loads(d["regime_analysis_json"])
+                except (json.JSONDecodeError, TypeError):
+                    d["regimes"] = []
+            else:
+                d["regimes"] = []
+            results.append(d)
+        return results
+    finally:
+        conn.close()
+
+
+@mcp.tool()
+def get_paper_trade_summary(pattern_id: int) -> dict[str, Any]:
+    """Get paper trading performance summary for a pattern.
+
+    Returns total trades, win rate, cumulative P&L, and open position count.
+    """
+    conn = _get_readonly_conn()
+    try:
+        row = conn.execute(
+            """
+            SELECT
+                COUNT(*) as total_trades,
+                SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN pnl <= 0 THEN 1 ELSE 0 END) as losses,
+                SUM(pnl) as total_pnl,
+                AVG(pnl) as avg_pnl
+            FROM paper_trade
+            WHERE pattern_id = ? AND status = 'closed'
+            """,
+            (pattern_id,),
+        ).fetchone()
+
+        total = row["total_trades"] or 0
+        open_row = conn.execute(
+            "SELECT COUNT(*) as cnt FROM paper_trade WHERE pattern_id = ? AND status = 'executed'",
+            (pattern_id,),
+        ).fetchone()
+
+        return {
+            "pattern_id": pattern_id,
+            "total_trades": total,
+            "wins": row["wins"] or 0,
+            "losses": row["losses"] or 0,
+            "win_rate": (row["wins"] or 0) / total if total > 0 else 0.0,
+            "total_pnl": row["total_pnl"] or 0.0,
+            "avg_pnl": row["avg_pnl"] or 0.0,
+            "open_trades": open_row["cnt"] if open_row else 0,
+        }
+    finally:
+        conn.close()
+
+
 # --- Entry point ---
 
 if __name__ == "__main__":

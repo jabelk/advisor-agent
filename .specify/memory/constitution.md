@@ -4,14 +4,15 @@
 
 ### I. Client Data Isolation (NON-NEGOTIABLE)
 
-This system MUST NEVER store, process, or transmit client personally identifiable information (PII). The system is for the advisor's personal investing education and productivity experimentation only. Any future Salesforce integration MUST use a developer sandbox with synthetic/test data only.
+This system MUST NEVER store, process, or transmit client personally identifiable information (PII). The system is for the advisor's personal investing education and productivity experimentation only. Any Salesforce integration MUST use a developer sandbox with synthetic/test data only. Any Schwab-related tooling MUST NOT connect to production Schwab systems.
 
 - No client names, account numbers, SSNs, or portfolio details
-- No connection to production Schwab/Salesforce systems
+- No connection to production Schwab systems (Schwab Advisor Center, StreetSmart Edge, etc.)
+- No connection to production Salesforce orgs — developer sandbox with synthetic data only
 - Clear separation between personal investing tools and professional tools
 - If a feature could accidentally ingest client data, it MUST have explicit safeguards
 
-Rationale: Financial advisors operate under strict regulatory requirements (SEC, FINRA). Mixing client data with personal tools creates compliance and legal risk.
+Rationale: Financial advisors operate under strict regulatory requirements (SEC, FINRA). Jordan works at Charles Schwab, which has its own compliance and data handling requirements. Mixing client data with personal tools creates compliance and legal risk.
 
 ### II. Research-Driven Decisions
 
@@ -30,12 +31,14 @@ Rationale: LLMs hallucinate. Financial decisions based on hallucinated data lose
 The system SHOULD reduce friction and increase the advisor's knowledge and efficiency:
 
 - Plain language interfaces preferred — describe what you want, get structured output
-- Pattern testing: describe a market pattern → system codifies it → tests against historical data
-- Report generation: natural language queries → formatted reports
-- Meeting prep: aggregate relevant market data and talking points
+- Pattern testing: describe a market pattern in plain text → system codifies it into rules → tests against historical data via Alpaca paper trading
+- Report generation: natural language queries → formatted reports (Salesforce sandbox for CRM skills, external tools for market data)
+- Meeting prep: aggregate relevant public market data and talking points (never client data)
 - Learning acceleration: help the advisor understand new concepts through interactive research
+- CRM experimentation: Salesforce developer sandbox as a learning platform for automation skills (dual approach: Salesforce Agentforce/Einstein + Claude-based agents)
+- Schwab ecosystem awareness: research what Jordan can automate within Schwab's proprietary tools vs. what needs external tooling
 
-Rationale: The primary value is making the advisor more effective, not replacing their judgment.
+Rationale: The primary value is making the advisor more effective, not replacing their judgment. Jordan currently uses AI for basic tasks (equations, simple productivity) — this system should level him up to AI-assisted research, pattern testing, and workflow automation.
 
 ### IV. Safety First
 
@@ -56,7 +59,8 @@ API keys and secrets MUST NEVER appear in source code, git history, or logs.
 - All secrets stored in environment variables or encrypted secrets file
 - `.env` files MUST be in `.gitignore` with restrictive permissions
 - Paper trading keys and live trading keys stored separately
-- Salesforce sandbox credentials stored separately from any production credentials
+- Salesforce sandbox credentials stored separately — MUST NEVER connect to a production Salesforce org
+- No Schwab production credentials stored in this system
 
 Rationale: Compromised API keys can drain accounts. Defense in depth is mandatory.
 
@@ -71,7 +75,7 @@ Rationale: Compromised API keys can drain accounts. Defense in depth is mandator
 - **LLM SDK**: anthropic (Python SDK) with Pydantic output models
 - **MCP Servers**: Alpaca (trading), custom research DB (FastMCP)
 - **Storage**: SQLite for structured data, filesystem for research artifacts
-- **CRM (Future)**: Salesforce developer sandbox (Agentforce/Einstein + Claude agents)
+- **CRM (Learning)**: Salesforce developer sandbox (Agentforce/Einstein + Claude agents) — not mirroring Schwab's proprietary tools, but building transferable CRM automation skills
 - **Testing**: pytest, paper trading integration tests
 - **CI**: GitHub Actions
 
@@ -95,4 +99,4 @@ Rationale: Compromised API keys can drain accounts. Defense in depth is mandator
 - No security warnings
 - Changes to safety module require explicit approval
 
-**Version**: 1.0.0 | **Ratified**: 2026-03-08
+**Version**: 1.1.0 | **Ratified**: 2026-03-08 | **Updated**: 2026-03-08
