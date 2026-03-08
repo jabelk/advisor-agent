@@ -247,3 +247,53 @@ class RegimeConfig(BaseModel):
     weak_threshold: float = Field(default=0.40, description="Win rate >= this but < strong = 'weak'; below = 'breakdown'")
     min_trades_for_regime: int = Field(default=10, description="Skip regime analysis if fewer trades")
     min_trades_per_window: int = Field(default=3, description="Skip windows with fewer trades")
+
+
+class TickerBreakdown(BaseModel):
+    """Per-ticker results within a multi-ticker backtest."""
+
+    ticker: str
+    events_detected: int = Field(default=0, description="Number of pattern trigger events for this ticker")
+    trades_entered: int = Field(default=0, description="Number of trades that met entry criteria")
+    win_count: int = Field(default=0, description="Trades with positive return")
+    win_rate: float = Field(default=0.0, description="win_count / trades_entered (0.0 if no trades)")
+    avg_return_pct: float = Field(default=0.0, description="Average per-trade return for this ticker")
+    total_return_pct: float = Field(default=0.0, description="Cumulative return across all trades for this ticker")
+
+
+class AggregatedBacktestReport(BaseModel):
+    """Combined results across multiple tickers for a single pattern."""
+
+    pattern_id: int
+    date_range_start: str
+    date_range_end: str
+    tickers: list[str]
+    ticker_breakdowns: list[TickerBreakdown] = Field(default_factory=list)
+    combined_report: BacktestReport
+    no_entry_events: list[dict] = Field(default_factory=list)
+
+
+class PairwiseComparison(BaseModel):
+    """Statistical comparison between two pattern variants."""
+
+    variant_a_id: int
+    variant_b_id: int
+    win_rate_p_value: float
+    win_rate_significant: bool
+    avg_return_p_value: float
+    avg_return_significant: bool
+    confidence_level: float = Field(default=0.95)
+
+
+class ABTestResult(BaseModel):
+    """Complete A/B test output comparing 2+ pattern variants."""
+
+    pattern_ids: list[int]
+    tickers: list[str]
+    date_range_start: str
+    date_range_end: str
+    variant_reports: list[AggregatedBacktestReport] = Field(default_factory=list)
+    comparisons: list[PairwiseComparison] = Field(default_factory=list)
+    best_variant_id: int
+    best_is_significant: bool
+    sample_size_warnings: list[str] = Field(default_factory=list)

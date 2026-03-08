@@ -7,6 +7,7 @@ import math
 from datetime import datetime, timedelta
 
 from finance_agent.patterns.models import (
+    AggregatedBacktestReport,
     BacktestReport,
     BacktestTrade,
     CoveredCallCycle,
@@ -16,6 +17,7 @@ from finance_agent.patterns.models import (
     RegimeConfig,
     RegimePeriod,
     RuleSet,
+    TickerBreakdown,
 )
 
 logger = logging.getLogger(__name__)
@@ -830,3 +832,123 @@ def run_news_dip_backtest(
     )
 
     return report, no_entry_events
+
+
+def run_multi_ticker_news_dip_backtest(
+    pattern_id: int,
+    rule_set: RuleSet,
+    all_bars: dict[str, list[dict]],
+    tickers: list[str],
+    start_date: str,
+    end_date: str,
+    event_config: EventDetectionConfig,
+) -> AggregatedBacktestReport:
+    """Run news-dip backtest across multiple tickers and aggregate results.
+
+    Iterates over each ticker, runs the single-ticker news-dip backtest,
+    builds per-ticker breakdowns, and pools all trades into a combined report.
+
+    Args:
+        pattern_id: ID of the pattern being backtested
+        rule_set: Parsed trading rules (entry signal, exit criteria, action)
+        all_bars: Historical price bars keyed by ticker symbol
+        tickers: List of ticker symbols to backtest
+        start_date: Backtest start date (YYYY-MM-DD)
+        end_date: Backtest end date (YYYY-MM-DD)
+        event_config: Configuration for event detection (thresholds, manual events, etc.)
+
+    Returns:
+        AggregatedBacktestReport with per-ticker breakdowns and combined metrics
+    """
+    from finance_agent.patterns.regime import detect_time_based_regimes
+
+    ticker_breakdowns: list[TickerBreakdown] = []
+    all_trades: list[BacktestTrade] = []
+    all_no_entry_events: list[dict] = []
+
+    for ticker in tickers:
+        bars = all_bars.get(ticker, [])
+
+        if not bars:
+            # No price data: zero-count breakdown, excluded from aggregates
+            ticker_breakdowns.append(TickerBreakdown(
+                ticker=ticker,
+                events_detected=0,
+                trades_entered=0,
+                win_count=0,
+                win_rate=0.0,
+                avg_return_pct=0.0,
+                total_return_pct=0.0,
+            ))
+            continue
+
+        # Run single-ticker backtest
+        report, no_entry_events = run_news_dip_backtest(
+            pattern_id=pattern_id,
+            rule_set=rule_set,
+            bars=bars,
+            ticker=ticker,
+            start_date=start_date,
+            end_date=end_date,
+            event_config=event_config,
+        )
+
+        # Build per-ticker breakdown from the single-ticker report
+        ticker_breakdowns.append(TickerBreakdown(
+            ticker=ticker,
+            events_detected=report.trigger_count,
+            trades_entered=report.trade_count,
+            win_count=report.win_count,
+            win_rate=(report.win_count / report.trade_count) if report.trade_count > 0 else 0.0,
+            avg_return_pct=report.avg_return_pct,
+            total_return_pct=report.total_return_pct,
+        ))
+
+        # Pool trades and no-entry events
+        all_trades.extend(report.trades)
+
+        # Tag each no-entry event with its ticker
+        for evt in no_entry_events:
+            evt["ticker"] = ticker
+        all_no_entry_events.extend(no_entry_events)
+
+    # Sort pooled trades by trigger date
+    all_trades.sort(key=lambda t: t.trigger_date)
+
+    # Calculate combined aggregate metrics
+    trigger_count = sum(tb.events_detected for tb in ticker_breakdowns)
+    trade_count = len(all_trades)
+    win_count = sum(1 for t in all_trades if t.return_pct > 0)
+    total_return_pct = sum(t.return_pct for t in all_trades)
+    avg_return_pct = total_return_pct / trade_count if trade_count > 0 else 0.0
+    max_drawdown_pct = _calculate_max_drawdown(all_trades)
+    sharpe_ratio = _calculate_sharpe(all_trades) if trade_count >= 2 else None
+
+    # Regime analysis on the combined trade set
+    regimes = detect_time_based_regimes(all_trades) if all_trades else []
+
+    combined_report = BacktestReport(
+        pattern_id=pattern_id,
+        date_range_start=start_date,
+        date_range_end=end_date,
+        trigger_count=trigger_count,
+        trade_count=trade_count,
+        win_count=win_count,
+        total_return_pct=total_return_pct,
+        avg_return_pct=avg_return_pct,
+        max_drawdown_pct=max_drawdown_pct,
+        sharpe_ratio=sharpe_ratio,
+        sample_size_warning=trade_count < 5,
+        regimes=regimes,
+        trades=all_trades,
+    )
+
+    return AggregatedBacktestReport(
+        pattern_id=pattern_id,
+        date_range_start=start_date,
+        date_range_end=end_date,
+        tickers=tickers,
+        ticker_breakdowns=ticker_breakdowns,
+        combined_report=combined_report,
+        no_entry_events=all_no_entry_events,
+    )

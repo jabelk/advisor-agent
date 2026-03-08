@@ -114,6 +114,18 @@ def main(argv: list[str] | None = None) -> None:
     pat_retire = pattern_sub.add_parser("retire", help="Retire a pattern")
     pat_retire.add_argument("pattern_id", type=int, help="Pattern ID to retire")
 
+    pat_ab_test = pattern_sub.add_parser("ab-test", help="A/B test pattern variants with statistical significance")
+    pat_ab_test.add_argument("pattern_ids", type=int, nargs="+", help="Two or more pattern IDs to compare")
+    pat_ab_test.add_argument("--tickers", required=True, help="Comma-separated tickers (required)")
+    pat_ab_test.add_argument("--start", help="Start date (YYYY-MM-DD, default: 1 year ago)")
+    pat_ab_test.add_argument("--end", help="End date (YYYY-MM-DD, default: today)")
+
+    pat_export = pattern_sub.add_parser("export", help="Export backtest results to markdown")
+    pat_export.add_argument("pattern_id", type=int, help="Pattern ID to export results for")
+    pat_export.add_argument("--format", default="markdown", dest="export_format", help="Output format (default: markdown)")
+    pat_export.add_argument("--output", help="Output file path (default: auto-generated)")
+    pat_export.add_argument("--backtest-id", type=int, help="Specific backtest result ID to export")
+
     # MCP server command
     mcp_parser = subparsers.add_parser("mcp", help="Start the MCP research server")
     mcp_parser.add_argument(
@@ -632,8 +644,12 @@ def cmd_pattern(args: argparse.Namespace) -> None:
             _pattern_compare(conn, args.pattern_ids)
         elif args.pattern_command == "retire":
             _pattern_retire(conn, audit, args.pattern_id)
+        elif args.pattern_command == "ab-test":
+            _pattern_ab_test(conn, audit, settings, args)
+        elif args.pattern_command == "export":
+            _pattern_export(conn, args)
         else:
-            print("Usage: finance-agent pattern {describe|backtest|paper-trade|list|show|compare|retire}")
+            print("Usage: finance-agent pattern {describe|backtest|paper-trade|list|show|compare|retire|ab-test|export}")
             sys.exit(1)
     finally:
         close_connection(conn)
@@ -887,26 +903,21 @@ def _run_standard_backtest(
     })
 
 
-def _run_news_dip_backtest(
-    conn: sqlite3.Connection,
-    audit: AuditLogger,
+def _build_event_config(
     args: argparse.Namespace,
     rule_set: RuleSet,
-    all_bars: dict[str, list[dict]],
-    start_date: str,
-    end_date: str,
-) -> None:
-    """Run news dip backtest with event detection and formatted report."""
-    from finance_agent.patterns.backtest import run_news_dip_backtest
+) -> tuple[EventDetectionConfig, str]:
+    """Build EventDetectionConfig from CLI args with fallbacks to pattern defaults.
+
+    Returns:
+        Tuple of (EventDetectionConfig, events_source_description)
+    """
     from finance_agent.patterns.event_detection import parse_events_file, parse_manual_events
     from finance_agent.patterns.models import EventDetectionConfig
-    from finance_agent.patterns.storage import save_backtest_result
 
-    # Build EventDetectionConfig from CLI args with fallbacks to pattern defaults
     spike_threshold = getattr(args, "spike_threshold", None)
     volume_multiple = getattr(args, "volume_multiple", None)
 
-    # Extract defaults from pattern trigger conditions
     for tc in rule_set.trigger_conditions:
         if tc.field == "price_change_pct" and spike_threshold is None:
             spike_threshold = float(tc.value)
@@ -916,7 +927,6 @@ def _run_news_dip_backtest(
     manual_events = None
     events_source = "price-action proxy"
 
-    # Parse manual events from CLI flags
     events_str = getattr(args, "events", None)
     events_file = getattr(args, "events_file", None)
 
@@ -941,8 +951,54 @@ def _run_news_dip_backtest(
         entry_window_days=rule_set.entry_signal.window_days,
         manual_events=manual_events,
     )
+    return event_config, events_source
 
-    # Run per-ticker
+
+def _run_news_dip_backtest(
+    conn: sqlite3.Connection,
+    audit: AuditLogger,
+    args: argparse.Namespace,
+    rule_set: RuleSet,
+    all_bars: dict[str, list[dict]],
+    start_date: str,
+    end_date: str,
+) -> None:
+    """Run news dip backtest with event detection and formatted report."""
+    from finance_agent.patterns.storage import save_backtest_result
+
+    event_config, events_source = _build_event_config(args, rule_set)
+
+    tickers = list(all_bars.keys())
+    is_multi_ticker = len(tickers) > 1
+
+    if is_multi_ticker:
+        _run_multi_ticker_news_dip(
+            conn, audit, args, rule_set, all_bars, tickers,
+            start_date, end_date, event_config, events_source,
+        )
+    else:
+        _run_single_ticker_news_dip(
+            conn, audit, args, rule_set, all_bars, tickers,
+            start_date, end_date, event_config, events_source,
+        )
+
+
+def _run_single_ticker_news_dip(
+    conn: sqlite3.Connection,
+    audit: AuditLogger,
+    args: argparse.Namespace,
+    rule_set: RuleSet,
+    all_bars: dict[str, list[dict]],
+    tickers: list[str],
+    start_date: str,
+    end_date: str,
+    event_config,
+    events_source: str,
+) -> None:
+    """Run single-ticker news dip backtest (original format)."""
+    from finance_agent.patterns.backtest import run_news_dip_backtest
+    from finance_agent.patterns.storage import save_backtest_result
+
     for ticker, bars in all_bars.items():
         print(f"\nRunning news dip backtest for {ticker}...")
         report, no_entry_events = run_news_dip_backtest(
@@ -955,10 +1011,8 @@ def _run_news_dip_backtest(
             event_config=event_config,
         )
 
-        # Save results
         backtest_id = save_backtest_result(conn, report)
 
-        # Display formatted report per contracts/cli.md
         no_entry_count = len(no_entry_events)
         print()
         print("═" * 51)
@@ -987,7 +1041,6 @@ def _run_news_dip_backtest(
             if report.sharpe_ratio is not None:
                 print(f"  Sharpe Ratio: {report.sharpe_ratio:.2f}")
 
-            # Regime analysis
             if report.regimes:
                 print()
                 print("  ─── REGIME ANALYSIS ───────────────────────────")
@@ -1003,7 +1056,6 @@ def _run_news_dip_backtest(
                 print("  ─── REGIME ANALYSIS ───────────────────────────")
                 print("  No regime shifts detected.")
 
-            # Trade log
             print()
             print("  ─── TRADE LOG ──────────────────────────────────")
             print(f"  {'#':<4}{'Trigger':<13}{'Entry':<13}{'Exit':<13}{'Return':<9}Action")
@@ -1024,7 +1076,6 @@ def _run_news_dip_backtest(
                 print()
                 print("  Events detected but no trades entered (no qualifying dips).")
 
-        # No-entry events
         if no_entry_events:
             print()
             print("  ─── NO-ENTRY EVENTS ────────────────────────────")
@@ -1049,6 +1100,109 @@ def _run_news_dip_backtest(
             "trades_entered": report.trade_count,
             "events_source": events_source,
         })
+
+
+def _run_multi_ticker_news_dip(
+    conn: sqlite3.Connection,
+    audit: AuditLogger,
+    args: argparse.Namespace,
+    rule_set: RuleSet,
+    all_bars: dict[str, list[dict]],
+    tickers: list[str],
+    start_date: str,
+    end_date: str,
+    event_config,
+    events_source: str,
+) -> None:
+    """Run multi-ticker news dip backtest with aggregated report."""
+    from finance_agent.patterns.backtest import run_multi_ticker_news_dip_backtest
+    from finance_agent.patterns.storage import save_backtest_result
+
+    print("\nRunning multi-ticker news dip backtest...")
+    agg_report = run_multi_ticker_news_dip_backtest(
+        pattern_id=args.pattern_id,
+        rule_set=rule_set,
+        all_bars=all_bars,
+        tickers=tickers,
+        start_date=start_date,
+        end_date=end_date,
+        event_config=event_config,
+    )
+
+    report = agg_report.combined_report
+    backtest_id = save_backtest_result(conn, report)
+
+    tickers_str = ",".join(agg_report.tickers)
+    print()
+    print("═" * 51)
+    print(f"  NEWS DIP BACKTEST: Pattern #{args.pattern_id} -- {tickers_str}")
+    print(f"  {start_date} -> {end_date}")
+    print("═" * 51)
+
+    # Per-ticker breakdown
+    print()
+    print("  --- PER-TICKER BREAKDOWN ----------------------")
+    print(f"  {'Ticker':<8}{'Events':<8}{'Trades':<8}{'Win Rate':<10}Avg Return")
+    for tb in agg_report.ticker_breakdowns:
+        wr_str = f"{tb.win_rate * 100:.1f}%" if tb.trades_entered > 0 else "—"
+        ar_sign = "+" if tb.avg_return_pct >= 0 else ""
+        ar_str = f"{ar_sign}{tb.avg_return_pct:.1f}%" if tb.trades_entered > 0 else "—"
+        print(f"  {tb.ticker:<8}{tb.events_detected:<8}{tb.trades_entered:<8}{wr_str:<10}{ar_str}")
+
+    # Combined aggregate
+    print()
+    print("  --- COMBINED AGGREGATE ------------------------")
+    print(f"  Total Events:     {report.trigger_count}")
+    print(f"  Total Trades:     {report.trade_count}")
+    if report.trade_count > 0:
+        win_rate = report.win_count / report.trade_count * 100
+        sign = "+" if report.avg_return_pct >= 0 else ""
+        total_sign = "+" if report.total_return_pct >= 0 else ""
+        print(f"  Win Rate:         {win_rate:.1f}% ({report.win_count}/{report.trade_count})")
+        print(f"  Avg Return:       {sign}{report.avg_return_pct:.1f}%")
+        print(f"  Total Return:     {total_sign}{report.total_return_pct:.1f}%")
+        print(f"  Max Drawdown:     -{report.max_drawdown_pct:.1f}%")
+        if report.sharpe_ratio is not None:
+            print(f"  Sharpe Ratio:     {report.sharpe_ratio:.2f}")
+
+        # Regime analysis
+        if report.regimes:
+            print()
+            print("  --- REGIME ANALYSIS ---------------------------")
+            for regime in report.regimes:
+                period = f"{regime.start_date[:7]} to {regime.end_date[:7]}"
+                sign = "+" if regime.avg_return_pct >= 0 else ""
+                strength = regime.label.capitalize()
+                print(f"  {period}: {strength} (win rate {regime.win_rate*100:.1f}%, avg {sign}{regime.avg_return_pct:.1f}%, {regime.trade_count} trades)")
+    else:
+        print()
+        print("  No qualifying events detected across any ticker.")
+        print("  Consider lowering thresholds or widening the date range.")
+
+    # No-entry events with ticker column
+    if agg_report.no_entry_events:
+        print()
+        print("  --- NO-ENTRY EVENTS ---------------------------")
+        for ne in agg_report.no_entry_events:
+            ticker_name = ne.get("ticker", "")
+            print(f"  {ticker_name:<6}{ne['date']}  {ne['reason']}")
+
+    # Sample size warning
+    if report.trade_count > 0 and report.sample_size_warning:
+        print()
+        print(f"  ! Sample size warning: {report.trade_count} trades may be insufficient")
+        print("    for reliable statistical conclusions.")
+
+    print("═" * 51)
+
+    audit.log("multi_ticker_backtested", "pattern_lab", {
+        "pattern_id": args.pattern_id,
+        "backtest_id": backtest_id,
+        "tickers": tickers,
+        "events_detected": report.trigger_count,
+        "trades_entered": report.trade_count,
+        "events_source": events_source,
+    })
 
 
 def _run_covered_call_backtest(
@@ -1565,6 +1719,229 @@ def _pattern_retire(
     print(f"Pattern #{pattern_id} ({pattern['name']}) has been retired")
 
     audit.log("pattern_retired", "pattern_lab", {"pattern_id": pattern_id})
+
+
+def _pattern_ab_test(
+    conn: sqlite3.Connection,
+    audit: AuditLogger,
+    settings: Settings,
+    args: argparse.Namespace,
+) -> None:
+    """Run an A/B test comparing pattern variants with statistical significance."""
+    from datetime import date, timedelta
+
+    from finance_agent.patterns.market_data import fetch_and_cache_bars
+    from finance_agent.patterns.models import EventDetectionConfig, RuleSet
+    from finance_agent.patterns.stats import format_significance, run_ab_test
+    from finance_agent.patterns.storage import get_pattern
+
+    # Validate: need at least 2 pattern IDs
+    if len(args.pattern_ids) < 2:
+        print("Error: A/B test requires at least 2 pattern IDs.")
+        sys.exit(1)
+
+    # Validate: tickers required
+    tickers = args.tickers.split(",") if args.tickers else []
+    if not tickers:
+        print("Error: --tickers is required for A/B testing.")
+        sys.exit(1)
+
+    # Validate patterns exist and are confirmed
+    event_configs: dict[int, tuple[RuleSet, EventDetectionConfig]] = {}
+    pattern_names: dict[int, str] = {}
+    for pid in args.pattern_ids:
+        pattern = get_pattern(conn, pid)
+        if not pattern:
+            print(f"Error: Pattern #{pid} not found.")
+            sys.exit(1)
+        if pattern["status"] == "draft":
+            print(f"Error: Pattern #{pid} is in draft status. Confirm the pattern first.")
+            sys.exit(1)
+
+        rule_set = RuleSet.model_validate_json(pattern["rule_set_json"])
+        pattern_names[pid] = pattern["name"]
+
+        # Build event config per pattern
+        spike_threshold = None
+        volume_multiple = None
+        for tc in rule_set.trigger_conditions:
+            if tc.field == "price_change_pct" and spike_threshold is None:
+                spike_threshold = float(tc.value)
+            if tc.field == "volume_spike" and volume_multiple is None:
+                volume_multiple = float(tc.value)
+
+        event_config = EventDetectionConfig(
+            spike_threshold_pct=spike_threshold or 5.0,
+            volume_multiple_min=volume_multiple or 1.5,
+            entry_window_days=rule_set.entry_signal.window_days,
+        )
+        event_configs[pid] = (rule_set, event_config)
+
+    # Parse dates
+    end_date = args.end or date.today().isoformat()
+    start_date = args.start or (date.today() - timedelta(days=365)).isoformat()
+
+    # Fetch price data
+    print(f"A/B Testing patterns: {', '.join(f'#{p}' for p in args.pattern_ids)}")
+    print(f"Period: {start_date} to {end_date}")
+    print(f"Tickers: {', '.join(tickers)}")
+    print()
+    print("Fetching market data...")
+    all_bars: dict[str, list[dict]] = {}
+    for ticker in tickers:
+        bars = fetch_and_cache_bars(
+            conn, ticker, start_date, end_date, "day",
+            settings.active_api_key, settings.active_secret_key,
+        )
+        if bars:
+            all_bars[ticker] = bars
+            print(f"  {ticker}: {len(bars)} bars")
+        else:
+            print(f"  {ticker}: no data available")
+
+    if not all_bars:
+        print("\nError: No price data available for any ticker")
+        sys.exit(1)
+
+    print("\nRunning A/B test...")
+    result = run_ab_test(
+        conn=conn,
+        pattern_ids=args.pattern_ids,
+        tickers=tickers,
+        start_date=start_date,
+        end_date=end_date,
+        all_bars=all_bars,
+        event_configs=event_configs,
+    )
+
+    # Display A/B test results
+    tickers_str = ",".join(tickers)
+    print()
+    print("═" * 51)
+    print("  A/B TEST COMPARISON")
+    print(f"  {start_date} -> {end_date} | Tickers: {tickers_str}")
+    print("═" * 51)
+
+    # Variant metrics table
+    print()
+    print("  --- VARIANT METRICS ---------------------------")
+    print(f"  {'ID':<5}{'Name':<20}{'Events':<8}{'Trades':<8}{'Win%':<7}Avg Ret")
+    for vr in result.variant_reports:
+        cr = vr.combined_report
+        name = pattern_names.get(vr.pattern_id, "")[:18]
+        wr = f"{cr.win_count / cr.trade_count * 100:.1f}%" if cr.trade_count > 0 else "—"
+        sign = "+" if cr.avg_return_pct >= 0 else ""
+        ar = f"{sign}{cr.avg_return_pct:.1f}%" if cr.trade_count > 0 else "—"
+        print(f"  {vr.pattern_id:<5}{name:<20}{cr.trigger_count:<8}{cr.trade_count:<8}{wr:<7}{ar}")
+
+    # Statistical significance table
+    print()
+    print("  --- STATISTICAL SIGNIFICANCE ------------------")
+    print(f"  {'Comparison':<19}{'Win Rate':<17}Avg Return")
+    for comp in result.comparisons:
+        label = f"#{comp.variant_a_id} vs #{comp.variant_b_id}"
+        wr_str = f"p={comp.win_rate_p_value:.2f} {format_significance(comp.win_rate_p_value)}"
+        ar_str = f"p={comp.avg_return_p_value:.2f} {format_significance(comp.avg_return_p_value)}"
+        print(f"  {label:<19}{wr_str:<17}{ar_str}")
+
+    # Multiple comparisons warning for 3+ variants
+    n_comparisons = len(result.comparisons)
+    if n_comparisons > 1:
+        false_positive_rate = 1 - (0.95 ** n_comparisons)
+        print()
+        print(f"  Note: With {n_comparisons} comparisons, ~{false_positive_rate*100:.0f}% chance")
+        print("  of at least one false positive at p < 0.05.")
+
+    # Result section
+    print()
+    print("  --- RESULT ------------------------------------")
+    best_name = pattern_names.get(result.best_variant_id, "")
+    print(f"  Best variant: #{result.best_variant_id} ({best_name})")
+    if result.best_is_significant:
+        print("  Advantage: Statistically significant (p < 0.05)")
+    else:
+        print("  Advantage: Not statistically significant (p > 0.05)")
+        print("  ! Consider collecting more data before choosing.")
+
+    # Sample size warnings
+    for warning in result.sample_size_warnings:
+        print(f"  {warning}")
+
+    print("═" * 51)
+
+    audit.log("ab_test_run", "pattern_lab", {
+        "pattern_ids": args.pattern_ids,
+        "tickers": tickers,
+        "best_variant_id": result.best_variant_id,
+        "best_is_significant": result.best_is_significant,
+    })
+
+
+def _pattern_export(
+    conn: sqlite3.Connection,
+    args: argparse.Namespace,
+) -> None:
+    """Export backtest results to a markdown file."""
+    from finance_agent.patterns.export import (
+        export_backtest_markdown,
+        generate_export_path,
+    )
+    from finance_agent.patterns.storage import get_pattern
+
+    # Validate format
+    if args.export_format != "markdown":
+        print(f"Error: Unsupported format '{args.export_format}'. Supported formats: markdown")
+        sys.exit(1)
+
+    # Validate pattern exists
+    pattern = get_pattern(conn, args.pattern_id)
+    if not pattern:
+        print(f"Error: Pattern #{args.pattern_id} not found.")
+        sys.exit(1)
+
+    # Get backtest results
+    backtest_id = getattr(args, "backtest_id", None)
+    if backtest_id:
+        row = conn.execute(
+            "SELECT * FROM backtest_result WHERE id = ? AND pattern_id = ?",
+            (backtest_id, args.pattern_id),
+        ).fetchone()
+        if not row:
+            print(f"Error: Backtest result #{backtest_id} not found for pattern #{args.pattern_id}.")
+            sys.exit(1)
+        backtest_row = dict(row)
+    else:
+        # Get most recent backtest
+        row = conn.execute(
+            "SELECT * FROM backtest_result WHERE pattern_id = ? ORDER BY id DESC LIMIT 1",
+            (args.pattern_id,),
+        ).fetchone()
+        if not row:
+            print(f"Error: No backtest results found for pattern #{args.pattern_id}. Run a backtest first.")
+            sys.exit(1)
+        backtest_row = dict(row)
+        backtest_id = backtest_row["id"]
+
+    # Get trades for this backtest
+    trade_rows = conn.execute(
+        "SELECT * FROM backtest_trade WHERE backtest_id = ? ORDER BY trigger_date",
+        (backtest_id,),
+    ).fetchall()
+    trades = [dict(r) for r in trade_rows]
+
+    # Generate markdown content
+    markdown = export_backtest_markdown(pattern, backtest_row, trades)
+
+    # Determine output path
+    output_path = args.output or generate_export_path(args.pattern_id, "backtest")
+
+    # Write file
+    from pathlib import Path
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(markdown, encoding="utf-8")
+
+    print(f"Exported backtest results for pattern #{args.pattern_id} to {output_path}")
 
 
 def cmd_mcp(args: argparse.Namespace) -> None:
