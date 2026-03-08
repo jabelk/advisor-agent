@@ -160,3 +160,49 @@ class BacktestReport(BaseModel):
     sample_size_warning: bool = False
     regimes: list[RegimePeriod] = Field(default_factory=list)
     trades: list[BacktestTrade] = Field(default_factory=list)
+
+
+class CoveredCallCycle(BaseModel):
+    """One complete cycle of a covered call: sell call → track → resolve."""
+
+    ticker: str
+    cycle_number: int = Field(ge=1)
+    stock_entry_price: float = Field(gt=0)
+    call_strike: float = Field(gt=0)
+    call_premium: float = Field(ge=0)
+    call_expiration_date: str
+    cycle_start_date: str
+    cycle_end_date: str | None = None
+    stock_price_at_exit: float | None = None
+    outcome: str | None = Field(
+        default=None,
+        description="expired_worthless, rolled, assigned, or closed_early",
+    )
+    premium_return_pct: float | None = None
+    total_return_pct: float | None = None
+    capped_upside_pct: float | None = None
+    historical_volatility: float | None = None
+
+
+class CoveredCallReport(BaseModel):
+    """Complete covered call backtest results."""
+
+    pattern_id: int
+    ticker: str
+    shares: int
+    date_range_start: str
+    date_range_end: str
+    cycle_count: int
+    total_premium_collected: float
+    avg_premium_per_cycle: float
+    annualized_income_yield_pct: float
+    assignment_count: int
+    assignment_frequency_pct: float
+    closed_early_count: int
+    rolled_count: int
+    expired_worthless_count: int
+    buy_and_hold_return_pct: float
+    covered_call_return_pct: float
+    capped_upside_cost: float
+    sample_size_warning: bool = False
+    cycles: list[CoveredCallCycle] = Field(default_factory=list)

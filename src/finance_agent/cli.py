@@ -90,11 +90,13 @@ def main(argv: list[str] | None = None) -> None:
     pat_backtest.add_argument("--start", help="Start date (YYYY-MM-DD, default: 1 year ago)")
     pat_backtest.add_argument("--end", help="End date (YYYY-MM-DD, default: today)")
     pat_backtest.add_argument("--tickers", help="Comma-separated tickers to test against")
+    pat_backtest.add_argument("--shares", type=int, default=100, help="Number of shares owned (for covered calls, default: 100)")
 
     pat_paper = pattern_sub.add_parser("paper-trade", help="Activate pattern for paper trading")
     pat_paper.add_argument("pattern_id", type=int, help="Pattern ID to paper trade")
     pat_paper.add_argument("--auto-approve", action="store_true", help="Skip manual approval for trades")
     pat_paper.add_argument("--tickers", help="Limit monitoring to specific tickers")
+    pat_paper.add_argument("--shares", type=int, default=100, help="Number of shares owned (for covered calls, default: 100)")
 
     pat_list = pattern_sub.add_parser("list", help="List all patterns")
     pat_list.add_argument("--status", help="Filter by status (draft, backtested, paper_trading, retired)")
@@ -665,34 +667,61 @@ def _pattern_describe(
     rule_set = result.rule_set
     assert rule_set is not None
 
+    is_covered_call = rule_set.action.action_type.value == "sell_call"
+
     print(f"Pattern: {result.suggested_name}")
     print(f"Status: draft")
     print()
-    print("Trigger:")
-    print(f"  Type: {rule_set.trigger_type}")
-    for tc in rule_set.trigger_conditions:
-        print(f"  Condition: {tc.description}")
-    if rule_set.sector_filter:
-        print(f"  Sector: {rule_set.sector_filter}")
-    print()
-    print("Entry Signal:")
-    print(f"  {rule_set.entry_signal.description}")
-    print(f"  Window: {rule_set.entry_signal.window_days} trading days")
-    print()
-    print("Action:")
-    print(f"  {rule_set.action.description}")
-    if rule_set.action.action_type.value.startswith("buy_") or rule_set.action.action_type.value.startswith("sell_"):
+
+    if is_covered_call:
+        # Covered call display format
+        print("Trigger:")
+        print(f"  Type: {rule_set.trigger_type}")
+        for tc in rule_set.trigger_conditions:
+            print(f"  Condition: {tc.description}")
+        print()
+        print("Call Sale:")
+        print(f"  {rule_set.action.description}")
+        print(f"  Strike: {rule_set.action.strike_strategy.value}")
+        print(f"  Expiration: {rule_set.action.expiration_days} days")
+        print()
+        print("Exit Criteria:")
+        print(f"  {rule_set.exit_criteria.description}")
+        print(f"  Close at {rule_set.exit_criteria.profit_target_pct}% premium profit")
+        roll_dte = rule_set.action.expiration_days - (rule_set.exit_criteria.max_hold_days or rule_set.action.expiration_days)
+        if roll_dte > 0:
+            print(f"  Roll at {roll_dte} DTE")
+        print(f"  Accept assignment if ITM at expiration")
+        print()
+        if rule_set.action.action_type.value == "sell_call":
+            print("  Note: This is a COVERED CALL strategy (requires owning underlying shares)")
+            print()
+    else:
+        # Standard pattern display
+        print("Trigger:")
+        print(f"  Type: {rule_set.trigger_type}")
+        for tc in rule_set.trigger_conditions:
+            print(f"  Condition: {tc.description}")
+        if rule_set.sector_filter:
+            print(f"  Sector: {rule_set.sector_filter}")
+        print()
+        print("Entry Signal:")
+        print(f"  {rule_set.entry_signal.description}")
+        print(f"  Window: {rule_set.entry_signal.window_days} trading days")
+        print()
+        print("Action:")
+        print(f"  {rule_set.action.description}")
         if "call" in rule_set.action.action_type.value or "put" in rule_set.action.action_type.value:
             print(f"  Strike: {rule_set.action.strike_strategy.value}")
             print(f"  Expiration: {rule_set.action.expiration_days} days")
-    print()
-    print("Exit Criteria:")
-    print(f"  {rule_set.exit_criteria.description}")
-    print(f"  Profit target: {rule_set.exit_criteria.profit_target_pct}%")
-    print(f"  Stop loss: {rule_set.exit_criteria.stop_loss_pct}%")
-    if rule_set.exit_criteria.max_hold_days:
-        print(f"  Max hold: {rule_set.exit_criteria.max_hold_days} days")
-    print()
+        print()
+        print("Exit Criteria:")
+        print(f"  {rule_set.exit_criteria.description}")
+        print(f"  Profit target: {rule_set.exit_criteria.profit_target_pct}%")
+        print(f"  Stop loss: {rule_set.exit_criteria.stop_loss_pct}%")
+        if rule_set.exit_criteria.max_hold_days:
+            print(f"  Max hold: {rule_set.exit_criteria.max_hold_days} days")
+        print()
 
     if result.defaults_applied:
         print("Defaults applied:")
@@ -715,9 +744,11 @@ def _pattern_describe(
     pattern_id = create_pattern(conn, result.suggested_name, description, rule_set_json)
     print(f"\nPattern saved as #{pattern_id} (status: draft)")
 
-    audit.log("pattern_created", "pattern_lab", {
+    event_name = "covered_call_described" if is_covered_call else "pattern_created"
+    audit.log(event_name, "pattern_lab", {
         "pattern_id": pattern_id,
         "name": result.suggested_name,
+        "is_covered_call": is_covered_call,
     })
 
 
@@ -730,7 +761,6 @@ def _pattern_backtest(
     """Run a backtest for a pattern."""
     from datetime import date, timedelta
 
-    from finance_agent.patterns.backtest import run_backtest
     from finance_agent.patterns.market_data import fetch_and_cache_bars
     from finance_agent.patterns.models import RuleSet
     from finance_agent.patterns.storage import get_pattern, save_backtest_result
@@ -757,9 +787,14 @@ def _pattern_backtest(
 
     rule_set = RuleSet.model_validate_json(pattern["rule_set_json"])
 
+    # Detect covered call → use specialized backtest
+    is_covered_call = rule_set.action.action_type.value == "sell_call"
+
     print(f"Backtesting pattern #{args.pattern_id}: {pattern['name']}")
     print(f"Period: {start_date} to {end_date}")
     print(f"Tickers: {', '.join(tickers)}")
+    if is_covered_call:
+        print(f"Shares: {args.shares}")
     print()
 
     # Fetch price data for all tickers
@@ -780,7 +815,25 @@ def _pattern_backtest(
         print("\nError: No price data available for any ticker")
         sys.exit(1)
 
-    # Run backtest
+    if is_covered_call:
+        _run_covered_call_backtest(conn, audit, args, rule_set, all_bars, start_date, end_date)
+    else:
+        _run_standard_backtest(conn, audit, args, rule_set, all_bars, start_date, end_date)
+
+
+def _run_standard_backtest(
+    conn: sqlite3.Connection,
+    audit: AuditLogger,
+    args: argparse.Namespace,
+    rule_set: RuleSet,
+    all_bars: dict[str, list[dict]],
+    start_date: str,
+    end_date: str,
+) -> None:
+    """Run standard pattern backtest (non-covered-call)."""
+    from finance_agent.patterns.backtest import run_backtest
+    from finance_agent.patterns.storage import save_backtest_result
+
     print("\nRunning backtest...")
     report = run_backtest(args.pattern_id, rule_set, all_bars, start_date, end_date)
 
@@ -820,6 +873,104 @@ def _pattern_backtest(
     })
 
 
+def _run_covered_call_backtest(
+    conn: sqlite3.Connection,
+    audit: AuditLogger,
+    args: argparse.Namespace,
+    rule_set: RuleSet,
+    all_bars: dict[str, list[dict]],
+    start_date: str,
+    end_date: str,
+) -> None:
+    """Run covered call backtest with monthly income report."""
+    from finance_agent.patterns.backtest import run_covered_call_backtest
+    from finance_agent.patterns.storage import save_backtest_result, save_covered_call_cycles
+
+    from finance_agent.patterns.models import BacktestReport
+
+    # Covered call backtests run per-ticker
+    for ticker, bars in all_bars.items():
+        print(f"\nRunning covered call backtest for {ticker}...")
+        report = run_covered_call_backtest(
+            pattern_id=args.pattern_id,
+            rule_set=rule_set,
+            bars=bars,
+            ticker=ticker,
+            start_date=start_date,
+            end_date=end_date,
+            shares=args.shares,
+        )
+
+        # Save as standard backtest result for pattern status tracking
+        bt_report = BacktestReport(
+            pattern_id=args.pattern_id,
+            date_range_start=start_date,
+            date_range_end=end_date,
+            trigger_count=report.cycle_count,
+            trade_count=report.cycle_count,
+            win_count=report.cycle_count - report.assignment_count,
+            total_return_pct=report.covered_call_return_pct,
+            avg_return_pct=report.covered_call_return_pct / report.cycle_count if report.cycle_count > 0 else 0.0,
+            max_drawdown_pct=0.0,
+            sharpe_ratio=None,
+            sample_size_warning=report.sample_size_warning,
+        )
+        backtest_id = save_backtest_result(conn, bt_report)
+
+        # Save covered call cycles
+        if report.cycles:
+            save_covered_call_cycles(conn, report.cycles, args.pattern_id, backtest_id)
+
+        # Display covered call report
+        print(f"\nBacktest Results (saved as #{backtest_id}):")
+        print(f"  Period: {start_date} to {end_date}")
+        print(f"  Ticker: {ticker}")
+        print(f"  Shares: {args.shares}")
+        print()
+        print(f"  Monthly Cycles: {report.cycle_count}")
+        if report.cycle_count > 0:
+            avg_per_share = report.avg_premium_per_cycle / args.shares if args.shares > 0 else 0
+            print(f"  Avg Premium/Month: ${report.avg_premium_per_cycle:,.2f} (${avg_per_share:.2f}/share)")
+        print(f"  Total Premium Collected: ${report.total_premium_collected:,.2f}")
+        print(f"  Annualized Income Yield: {report.annualized_income_yield_pct:.1f}%")
+        print()
+        print(f"  Assignment Events: {report.assignment_count} of {report.cycle_count} cycles ({report.assignment_frequency_pct:.1f}%)")
+        print(f"  Cycles Closed Early (profit target): {report.closed_early_count}")
+        print(f"  Cycles Rolled: {report.rolled_count}")
+        print(f"  Cycles Expired Worthless: {report.expired_worthless_count}")
+        print()
+        print(f"  Buy-and-Hold Return: {'+' if report.buy_and_hold_return_pct >= 0 else ''}{report.buy_and_hold_return_pct:.1f}%")
+        print(f"  Covered Call Return: {'+' if report.covered_call_return_pct >= 0 else ''}{report.covered_call_return_pct:.1f}% (stock gain + premium - capped upside)")
+        print(f"  Capped Upside Cost: -${report.capped_upside_cost:,.2f} (forfeited gains from assignment)")
+
+        # Month-by-month breakdown
+        if report.cycles:
+            print()
+            print("  Month-by-Month:")
+            for cycle in report.cycles:
+                stock_chg = ""
+                if cycle.stock_price_at_exit and cycle.stock_entry_price:
+                    chg = ((cycle.stock_price_at_exit - cycle.stock_entry_price) / cycle.stock_entry_price) * 100
+                    stock_chg = f"Stock: {'+' if chg >= 0 else ''}{chg:.1f}%"
+                outcome = cycle.outcome or "open"
+                print(f"    {cycle.cycle_start_date}  | Premium: ${cycle.call_premium:,.2f} | {stock_chg} | Outcome: {outcome}")
+
+        if report.sample_size_warning:
+            print(f"\n  WARNING: Only {report.cycle_count} cycles — fewer than {6} needed for meaningful income estimation")
+
+        print()
+        print("  WARNING: Premium estimates use historical volatility approximation (not actual option prices)")
+
+        audit.log("covered_call_backtested", "pattern_lab", {
+            "pattern_id": args.pattern_id,
+            "backtest_id": backtest_id,
+            "ticker": ticker,
+            "cycle_count": report.cycle_count,
+            "total_premium": report.total_premium_collected,
+            "annualized_yield": report.annualized_income_yield_pct,
+        })
+
+
 def _pattern_paper_trade(
     conn: sqlite3.Connection,
     audit: AuditLogger,
@@ -827,7 +978,8 @@ def _pattern_paper_trade(
     args: argparse.Namespace,
 ) -> None:
     """Activate a pattern for paper trading."""
-    from finance_agent.patterns.executor import PatternMonitor
+    from finance_agent.patterns.executor import CoveredCallMonitor, PatternMonitor
+    from finance_agent.patterns.models import RuleSet
     from finance_agent.patterns.storage import get_pattern, update_pattern_status
 
     pattern = get_pattern(conn, args.pattern_id)
@@ -840,10 +992,14 @@ def _pattern_paper_trade(
         sys.exit(1)
 
     tickers = args.tickers.split(",") if args.tickers else None
+    rule_set = RuleSet.model_validate_json(pattern["rule_set_json"])
+    is_covered_call = rule_set.action.action_type.value == "sell_call"
 
     update_pattern_status(conn, args.pattern_id, "paper_trading")
 
     print(f"Activating paper trading for pattern #{args.pattern_id}: {pattern['name']}")
+    if is_covered_call:
+        print(f"Type: Covered Call (shares: {args.shares})")
     if args.auto_approve:
         print("Auto-approve: ON (trades will execute without confirmation)")
     else:
@@ -856,9 +1012,17 @@ def _pattern_paper_trade(
     audit.log("paper_trade_started", "pattern_lab", {
         "pattern_id": args.pattern_id,
         "auto_approve": args.auto_approve,
+        "is_covered_call": is_covered_call,
     })
 
-    monitor = PatternMonitor(conn, audit, settings, args.pattern_id, tickers, args.auto_approve)
+    if is_covered_call:
+        shares = getattr(args, "shares", 100)
+        monitor = CoveredCallMonitor(
+            conn, audit, settings, args.pattern_id, tickers, args.auto_approve, shares=shares,
+        )
+    else:
+        monitor = PatternMonitor(conn, audit, settings, args.pattern_id, tickers, args.auto_approve)
+
     try:
         monitor.run()
     except KeyboardInterrupt:
@@ -952,7 +1116,13 @@ def _pattern_show(conn: sqlite3.Connection, pattern_id: int) -> None:
 
 def _pattern_compare(conn: sqlite3.Connection, pattern_ids: list[int]) -> None:
     """Compare performance across patterns."""
-    from finance_agent.patterns.storage import get_backtest_results, get_pattern
+    import json
+
+    from finance_agent.patterns.storage import (
+        get_backtest_results,
+        get_covered_call_summary,
+        get_pattern,
+    )
 
     patterns = []
     for pid in pattern_ids:
@@ -967,53 +1137,135 @@ def _pattern_compare(conn: sqlite3.Connection, pattern_ids: list[int]) -> None:
         print("Need at least 2 valid patterns to compare")
         sys.exit(1)
 
+    # Detect if all patterns are covered calls
+    all_covered_calls = all(
+        json.loads(p["rule_set_json"]).get("action", {}).get("action_type") == "sell_call"
+        for p, _ in patterns
+    )
+
     print("Pattern Comparison:")
     print()
-    print(f"  {'Metric':<20}", end="")
+    print(f"  {'Metric':<22}", end="")
     for p, _ in patterns:
         print(f"  {p['name'][:18]:<20}", end="")
     print()
-    print(f"  {'─'*20}", end="")
+    print(f"  {'─'*22}", end="")
     for _ in patterns:
         print(f"  {'─'*20}", end="")
     print()
 
-    # Win rate
-    print(f"  {'Win Rate':<20}", end="")
-    for _, bt in patterns:
-        if bt and bt["trade_count"] > 0:
-            wr = bt["win_count"] / bt["trade_count"] * 100
-            print(f"  {wr:.1f}%{'':<16}", end="")
-        else:
-            print(f"  {'N/A':<20}", end="")
-    print()
+    if all_covered_calls:
+        # Covered call-specific comparison
+        summaries = []
+        for p, bt in patterns:
+            summary = get_covered_call_summary(conn, p["id"])
+            summaries.append(summary)
 
-    # Avg return
-    print(f"  {'Avg Return':<20}", end="")
-    for _, bt in patterns:
-        if bt:
-            print(f"  {bt['avg_return_pct']:.2f}%{'':<15}", end="")
-        else:
-            print(f"  {'N/A':<20}", end="")
-    print()
+        # Annualized Yield
+        print(f"  {'Annualized Yield':<22}", end="")
+        for summary in summaries:
+            if summary["cycle_count"] > 0:
+                print(f"  {summary['avg_premium_return_pct']:.1f}%{'':<16}", end="")
+            else:
+                print(f"  {'N/A':<20}", end="")
+        print()
 
-    # Max drawdown
-    print(f"  {'Max Drawdown':<20}", end="")
-    for _, bt in patterns:
-        if bt:
-            print(f"  {bt['max_drawdown_pct']:.2f}%{'':<15}", end="")
-        else:
-            print(f"  {'N/A':<20}", end="")
-    print()
+        # Assignment Frequency
+        print(f"  {'Assignment Freq':<22}", end="")
+        for summary in summaries:
+            if summary["cycle_count"] > 0:
+                print(f"  {summary['assignment_frequency_pct']:.1f}%{'':<16}", end="")
+            else:
+                print(f"  {'N/A':<20}", end="")
+        print()
 
-    # Trade count
-    print(f"  {'Trades':<20}", end="")
-    for _, bt in patterns:
-        if bt:
-            print(f"  {bt['trade_count']:<20}", end="")
-        else:
-            print(f"  {'N/A':<20}", end="")
-    print()
+        # Avg Premium/Month
+        print(f"  {'Avg Premium/Cycle':<22}", end="")
+        for summary in summaries:
+            if summary["cycle_count"] > 0:
+                print(f"  ${summary['avg_premium']:,.2f}{'':<12}", end="")
+            else:
+                print(f"  {'N/A':<20}", end="")
+        print()
+
+        # Capped Upside Cost
+        print(f"  {'Capped Upside Cost':<22}", end="")
+        for summary in summaries:
+            if summary["total_capped_upside_pct"] > 0:
+                print(f"  -{summary['total_capped_upside_pct']:.1f}%{'':<15}", end="")
+            else:
+                print(f"  {'0.0%':<20}", end="")
+        print()
+
+        # Total Return (from backtest)
+        print(f"  {'Total Return':<22}", end="")
+        for _, bt in patterns:
+            if bt:
+                print(f"  {bt['total_return_pct']:.1f}%{'':<16}", end="")
+            else:
+                print(f"  {'N/A':<20}", end="")
+        print()
+
+        # Cycles
+        print(f"  {'Cycles':<22}", end="")
+        for summary in summaries:
+            print(f"  {summary['cycle_count']:<20}", end="")
+        print()
+
+        # Outcome breakdown
+        print(f"  {'Expired Worthless':<22}", end="")
+        for summary in summaries:
+            print(f"  {summary['expired_count']:<20}", end="")
+        print()
+
+        print(f"  {'Closed Early':<22}", end="")
+        for summary in summaries:
+            print(f"  {summary['closed_early_count']:<20}", end="")
+        print()
+
+        print(f"  {'Rolled':<22}", end="")
+        for summary in summaries:
+            print(f"  {summary['rolled_count']:<20}", end="")
+        print()
+
+    else:
+        # Standard pattern comparison
+        # Win rate
+        print(f"  {'Win Rate':<22}", end="")
+        for _, bt in patterns:
+            if bt and bt["trade_count"] > 0:
+                wr = bt["win_count"] / bt["trade_count"] * 100
+                print(f"  {wr:.1f}%{'':<16}", end="")
+            else:
+                print(f"  {'N/A':<20}", end="")
+        print()
+
+        # Avg return
+        print(f"  {'Avg Return':<22}", end="")
+        for _, bt in patterns:
+            if bt:
+                print(f"  {bt['avg_return_pct']:.2f}%{'':<15}", end="")
+            else:
+                print(f"  {'N/A':<20}", end="")
+        print()
+
+        # Max drawdown
+        print(f"  {'Max Drawdown':<22}", end="")
+        for _, bt in patterns:
+            if bt:
+                print(f"  {bt['max_drawdown_pct']:.2f}%{'':<15}", end="")
+            else:
+                print(f"  {'N/A':<20}", end="")
+        print()
+
+        # Trade count
+        print(f"  {'Trades':<22}", end="")
+        for _, bt in patterns:
+            if bt:
+                print(f"  {bt['trade_count']:<20}", end="")
+            else:
+                print(f"  {'N/A':<20}", end="")
+        print()
 
 
 def _pattern_retire(

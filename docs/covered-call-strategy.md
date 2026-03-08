@@ -63,40 +63,52 @@ The strategy works best on stocks with moderate volatility — enough premium to
 
 ---
 
-## Pattern Lab Support Status
+## Pattern Lab Support — Fully Implemented
 
-### What Works Today
+All four user stories are implemented in feature 012-covered-call-strategy:
 
-- `ActionType.SELL_CALL` already exists in the models
-- Pattern parser can understand "sell calls" descriptions
-- Storage layer supports `option_details_json` for tracking strikes/premiums
-- Audit logging covers all paper trade events
+### US1: Describe a Covered Call
+```bash
+finance-agent pattern describe "I own 500 shares of ABBV. Sell monthly calls 5% out of the money, close at 50% profit or roll at 21 days to expiration"
+```
+- Parser recognizes covered call keywords (`sell calls`, `write calls`, `covered call`)
+- Sets `action_type` to `sell_call` with appropriate defaults
+- Displays formatted two-leg position summary (stock + call sale)
+- Warns on naked call descriptions
 
-### What Needs Enhancement
+### US2: Backtest a Covered Call
+```bash
+finance-agent pattern backtest <id> --start 2024-01-01 --end 2025-12-31 --tickers ABBV --shares 500
+```
+- Monthly cycle simulation using Black-Scholes premium estimation
+- Historical volatility calculation (20-day lookback, annualized)
+- Assignment, early close, roll, and expiration outcomes
+- Buy-and-hold comparison and capped upside cost tracking
+- Month-by-month income breakdown
 
-The current backtest engine and paper trading executor are designed for **directional trades** (buy low, sell high). Covered calls need different logic:
+### US3: Paper Trade a Covered Call
+```bash
+finance-agent pattern paper-trade <id> --tickers ABBV --shares 500
+```
+- Alpaca option chain lookup for real strike/expiration matching
+- Sell-to-open order submission via Alpaca paper trading
+- Roll detection at DTE threshold (proposes closing and rolling)
+- Assignment detection near expiration
+- Falls back to estimated premium when option chain is unavailable
 
-**Backtest Changes Needed**:
-- `_estimate_options_return()` currently treats all calls as long (buy) calls. Selling calls inverts the P&L: you profit when the stock stays flat or drops slightly
-- Need to model premium collection + assignment risk instead of just leveraged returns
-- Simplified covered call P&L per trade:
-  - If stock < strike at expiration: `return = premium_collected / stock_entry_price * 100`
-  - If stock > strike at expiration: `return = (premium_collected + (strike - entry_price)) / entry_price * 100`
+### US4: Compare Covered Call Parameters
+```bash
+finance-agent pattern compare <id1> <id2> <id3>
+```
+- Side-by-side comparison of covered call-specific metrics
+- Annualized yield, assignment frequency, avg premium, capped upside cost
+- Outcome breakdown (expired, closed early, rolled, assigned)
 
-**Paper Trading Changes Needed**:
-- Alpaca supports options orders but executor currently only submits stock market orders
-- Need sell-to-open order type for the short call leg
-- Need to track two-leg position (long stock + short call) as a unit
-- Exit conditions differ: expiration, early buyback, assignment
-
-### Suggested Implementation (Future)
-
-1. Add `CoveredCallStrategy` class that manages the two-leg position
-2. Modify backtest to simulate premium decay and assignment
-3. Add option chain lookup via Alpaca to find appropriate strikes
-4. Trigger: stock in portfolio + IV rank above threshold (good premium)
-5. Entry: sell call at X% OTM with 30-45 DTE
-6. Exit: buy back at 50% profit, roll at 21 DTE, or let expire/assign
+### Technical Details
+- **Premium Estimation**: Black-Scholes via `math.erf` (no scipy), 15% IV premium over realized vol
+- **Cycle Model**: Monthly cycles with configurable expiration, strike distance, profit target, roll threshold
+- **Storage**: `covered_call_cycle` table with per-cycle tracking, `get_covered_call_summary()` for aggregates
+- **Audit Logging**: Events for described, backtested, sold, rolled, assigned, expired
 
 ---
 

@@ -6,7 +6,12 @@ import json
 import sqlite3
 from datetime import UTC, datetime
 
-from finance_agent.patterns.models import BacktestReport, BacktestTrade, RegimePeriod
+from finance_agent.patterns.models import (
+    BacktestReport,
+    BacktestTrade,
+    CoveredCallCycle,
+    RegimePeriod,
+)
 
 
 def _now() -> str:
@@ -279,4 +284,100 @@ def get_paper_trade_summary(
             "SELECT COUNT(*) as cnt FROM paper_trade WHERE pattern_id = ? AND status = 'executed'",
             (pattern_id,),
         ).fetchone()["cnt"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Covered call cycles
+# ---------------------------------------------------------------------------
+
+def save_covered_call_cycles(
+    conn: sqlite3.Connection,
+    cycles: list[CoveredCallCycle],
+    pattern_id: int,
+    backtest_result_id: int | None = None,
+) -> None:
+    """Save covered call cycles to the database."""
+    for cycle in cycles:
+        conn.execute(
+            "INSERT INTO covered_call_cycle "
+            "(pattern_id, backtest_result_id, ticker, cycle_number, stock_entry_price, "
+            "call_strike, call_premium, call_expiration_date, cycle_start_date, cycle_end_date, "
+            "stock_price_at_exit, outcome, premium_return_pct, total_return_pct, "
+            "capped_upside_pct, historical_volatility) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                pattern_id,
+                backtest_result_id,
+                cycle.ticker,
+                cycle.cycle_number,
+                cycle.stock_entry_price,
+                cycle.call_strike,
+                cycle.call_premium,
+                cycle.call_expiration_date,
+                cycle.cycle_start_date,
+                cycle.cycle_end_date,
+                cycle.stock_price_at_exit,
+                cycle.outcome,
+                cycle.premium_return_pct,
+                cycle.total_return_pct,
+                cycle.capped_upside_pct,
+                cycle.historical_volatility,
+            ),
+        )
+    conn.commit()
+
+
+def get_covered_call_cycles(
+    conn: sqlite3.Connection,
+    pattern_id: int,
+    backtest_result_id: int | None = None,
+) -> list[dict]:
+    """Get covered call cycles for a pattern."""
+    if backtest_result_id:
+        rows = conn.execute(
+            "SELECT * FROM covered_call_cycle WHERE pattern_id = ? AND backtest_result_id = ? "
+            "ORDER BY cycle_number",
+            (pattern_id, backtest_result_id),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM covered_call_cycle WHERE pattern_id = ? ORDER BY cycle_number",
+            (pattern_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_covered_call_summary(
+    conn: sqlite3.Connection,
+    pattern_id: int,
+) -> dict:
+    """Get aggregate covered call performance for a pattern."""
+    row = conn.execute(
+        "SELECT "
+        "COUNT(*) as cycle_count, "
+        "SUM(call_premium) as total_premium, "
+        "AVG(call_premium) as avg_premium, "
+        "SUM(CASE WHEN outcome = 'assigned' THEN 1 ELSE 0 END) as assignment_count, "
+        "SUM(CASE WHEN outcome = 'expired_worthless' THEN 1 ELSE 0 END) as expired_count, "
+        "SUM(CASE WHEN outcome = 'rolled' THEN 1 ELSE 0 END) as rolled_count, "
+        "SUM(CASE WHEN outcome = 'closed_early' THEN 1 ELSE 0 END) as closed_early_count, "
+        "AVG(premium_return_pct) as avg_premium_return_pct, "
+        "SUM(capped_upside_pct) as total_capped_upside_pct "
+        "FROM covered_call_cycle WHERE pattern_id = ? AND outcome IS NOT NULL",
+        (pattern_id,),
+    ).fetchone()
+
+    total = row["cycle_count"] or 0
+    return {
+        "cycle_count": total,
+        "total_premium": row["total_premium"] or 0.0,
+        "avg_premium": row["avg_premium"] or 0.0,
+        "assignment_count": row["assignment_count"] or 0,
+        "assignment_frequency_pct": (row["assignment_count"] or 0) / total * 100 if total > 0 else 0.0,
+        "expired_count": row["expired_count"] or 0,
+        "rolled_count": row["rolled_count"] or 0,
+        "closed_early_count": row["closed_early_count"] or 0,
+        "avg_premium_return_pct": row["avg_premium_return_pct"] or 0.0,
+        "total_capped_upside_pct": row["total_capped_upside_pct"] or 0.0,
     }

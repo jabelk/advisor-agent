@@ -66,8 +66,8 @@ def populated_db(tmp_path: Path) -> tuple[str, Path]:
 class TestMCPServerIntegration:
     """Integration tests for the MCP server tools."""
 
-    def test_all_seven_tools_registered(self, populated_db: tuple[str, Path]):
-        """Verify the server exposes exactly 7 tools."""
+    def test_all_tools_registered(self, populated_db: tuple[str, Path]):
+        """Verify the server exposes all expected tools."""
         db_path, data_dir = populated_db
         import finance_agent.mcp.research_server as srv
 
@@ -86,6 +86,10 @@ class TestMCPServerIntegration:
             "get_safety_state",
             "get_audit_log",
             "get_pipeline_status",
+            "list_patterns",
+            "get_pattern_detail",
+            "get_backtest_results",
+            "get_paper_trade_summary",
         }
         missing = expected - tool_names
         extra = tool_names - expected
