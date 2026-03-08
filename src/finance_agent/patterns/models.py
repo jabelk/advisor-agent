@@ -206,3 +206,44 @@ class CoveredCallReport(BaseModel):
     capped_upside_cost: float
     sample_size_warning: bool = False
     cycles: list[CoveredCallCycle] = Field(default_factory=list)
+
+
+class DetectedEvent(BaseModel):
+    """A detected price spike used as a news event proxy during backtesting."""
+
+    date: str = Field(description="Bar date when spike was detected (YYYY-MM-DD)")
+    ticker: str = Field(description="Stock ticker symbol")
+    price_change_pct: float = Field(description="Single-day price change percentage")
+    volume_multiple: float = Field(description="Volume as multiple of 20-day average")
+    close_price: float = Field(description="Closing price on spike day")
+    high_price: float = Field(description="Intraday high on spike day")
+    event_label: str | None = Field(default=None, description="Optional user-provided label (e.g., 'FDA approval')")
+    source: str = Field(description="'proxy' (automatic detection) or 'manual' (user-provided date)")
+
+
+class ManualEvent(BaseModel):
+    """A user-provided event date for backtesting."""
+
+    date: str = Field(description="Event date (YYYY-MM-DD)")
+    label: str | None = Field(default=None, description="Optional description (e.g., 'MRNA FDA approval')")
+
+
+class EventDetectionConfig(BaseModel):
+    """Configuration for the event detection engine."""
+
+    spike_threshold_pct: float = Field(default=5.0, description="Minimum single-day price increase %")
+    volume_multiple_min: float = Field(default=1.5, description="Minimum volume vs 20-day average")
+    volume_lookback_days: int = Field(default=20, description="Days for average volume calculation")
+    cooldown_mode: str = Field(default="trade_lifecycle", description="How to handle consecutive spikes")
+    entry_window_days: int = Field(default=2, description="Days to wait for entry after trigger")
+    manual_events: list[ManualEvent] | None = Field(default=None, description="User-provided event dates")
+
+
+class RegimeConfig(BaseModel):
+    """Configuration for regime analysis."""
+
+    window_trading_days: int = Field(default=63, description="Rolling window size (~3 months)")
+    strong_threshold: float = Field(default=0.60, description="Win rate >= this = 'strong'")
+    weak_threshold: float = Field(default=0.40, description="Win rate >= this but < strong = 'weak'; below = 'breakdown'")
+    min_trades_for_regime: int = Field(default=10, description="Skip regime analysis if fewer trades")
+    min_trades_per_window: int = Field(default=3, description="Skip windows with fewer trades")

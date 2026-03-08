@@ -91,6 +91,10 @@ def main(argv: list[str] | None = None) -> None:
     pat_backtest.add_argument("--end", help="End date (YYYY-MM-DD, default: today)")
     pat_backtest.add_argument("--tickers", help="Comma-separated tickers to test against")
     pat_backtest.add_argument("--shares", type=int, default=100, help="Number of shares owned (for covered calls, default: 100)")
+    pat_backtest.add_argument("--events", help="Manual event dates (comma-separated YYYY-MM-DD)")
+    pat_backtest.add_argument("--events-file", help="File with event dates (one per line)")
+    pat_backtest.add_argument("--spike-threshold", type=float, help="Override spike threshold %% (default: from pattern)")
+    pat_backtest.add_argument("--volume-multiple", type=float, help="Override volume multiplier (default: from pattern)")
 
     pat_paper = pattern_sub.add_parser("paper-trade", help="Activate pattern for paper trading")
     pat_paper.add_argument("pattern_id", type=int, help="Pattern ID to paper trade")
@@ -787,6 +791,11 @@ def _pattern_backtest(
 
     rule_set = RuleSet.model_validate_json(pattern["rule_set_json"])
 
+    # Validate mutually exclusive event flags
+    if getattr(args, 'events', None) and getattr(args, 'events_file', None):
+        print("Error: --events and --events-file are mutually exclusive. Use one or the other.")
+        sys.exit(1)
+
     # Detect covered call → use specialized backtest
     is_covered_call = rule_set.action.action_type.value == "sell_call"
 
@@ -815,8 +824,13 @@ def _pattern_backtest(
         print("\nError: No price data available for any ticker")
         sys.exit(1)
 
+    # Route to appropriate backtest engine
+    is_qualitative = rule_set.trigger_type.value == "qualitative"
+
     if is_covered_call:
         _run_covered_call_backtest(conn, audit, args, rule_set, all_bars, start_date, end_date)
+    elif is_qualitative:
+        _run_news_dip_backtest(conn, audit, args, rule_set, all_bars, start_date, end_date)
     else:
         _run_standard_backtest(conn, audit, args, rule_set, all_bars, start_date, end_date)
 
@@ -871,6 +885,170 @@ def _run_standard_backtest(
         "trade_count": report.trade_count,
         "win_rate": report.win_count / report.trade_count if report.trade_count > 0 else 0,
     })
+
+
+def _run_news_dip_backtest(
+    conn: sqlite3.Connection,
+    audit: AuditLogger,
+    args: argparse.Namespace,
+    rule_set: RuleSet,
+    all_bars: dict[str, list[dict]],
+    start_date: str,
+    end_date: str,
+) -> None:
+    """Run news dip backtest with event detection and formatted report."""
+    from finance_agent.patterns.backtest import run_news_dip_backtest
+    from finance_agent.patterns.event_detection import parse_events_file, parse_manual_events
+    from finance_agent.patterns.models import EventDetectionConfig
+    from finance_agent.patterns.storage import save_backtest_result
+
+    # Build EventDetectionConfig from CLI args with fallbacks to pattern defaults
+    spike_threshold = getattr(args, "spike_threshold", None)
+    volume_multiple = getattr(args, "volume_multiple", None)
+
+    # Extract defaults from pattern trigger conditions
+    for tc in rule_set.trigger_conditions:
+        if tc.field == "price_change_pct" and spike_threshold is None:
+            spike_threshold = float(tc.value)
+        if tc.field == "volume_spike" and volume_multiple is None:
+            volume_multiple = float(tc.value)
+
+    manual_events = None
+    events_source = "price-action proxy"
+
+    # Parse manual events from CLI flags
+    events_str = getattr(args, "events", None)
+    events_file = getattr(args, "events_file", None)
+
+    if events_str:
+        try:
+            manual_events = parse_manual_events(events_str)
+            events_source = "manual (CLI)"
+        except ValueError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+    elif events_file:
+        try:
+            manual_events = parse_events_file(events_file)
+            events_source = f"manual (file: {events_file})"
+        except (FileNotFoundError, ValueError) as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    event_config = EventDetectionConfig(
+        spike_threshold_pct=spike_threshold or 5.0,
+        volume_multiple_min=volume_multiple or 1.5,
+        entry_window_days=rule_set.entry_signal.window_days,
+        manual_events=manual_events,
+    )
+
+    # Run per-ticker
+    for ticker, bars in all_bars.items():
+        print(f"\nRunning news dip backtest for {ticker}...")
+        report, no_entry_events = run_news_dip_backtest(
+            pattern_id=args.pattern_id,
+            rule_set=rule_set,
+            bars=bars,
+            ticker=ticker,
+            start_date=start_date,
+            end_date=end_date,
+            event_config=event_config,
+        )
+
+        # Save results
+        backtest_id = save_backtest_result(conn, report)
+
+        # Display formatted report per contracts/cli.md
+        no_entry_count = len(no_entry_events)
+        print()
+        print("═" * 51)
+        print(f"  NEWS DIP BACKTEST: {args.pattern_id} – {ticker}")
+        print(f"  {start_date} → {end_date}")
+        print("═" * 51)
+        print()
+        print(f"  Events Detected:  {report.trigger_count}  (source: {events_source})")
+        print(f"  Spike Threshold:  {event_config.spike_threshold_pct}%  |  Volume Filter: {event_config.volume_multiple_min}x avg")
+        if no_entry_count > 0:
+            print(f"  Trades Entered:   {report.trade_count}  ({no_entry_count} events had no qualifying dip)")
+        else:
+            print(f"  Trades Entered:   {report.trade_count}")
+
+        if report.trade_count > 0:
+            win_rate = report.win_count / report.trade_count * 100
+            loss_count = report.trade_count - report.win_count
+            sign = "+" if report.avg_return_pct >= 0 else ""
+            total_sign = "+" if report.total_return_pct >= 0 else ""
+            print()
+            print("  ─── AGGREGATE ──────────────────────────────────")
+            print(f"  Win Rate:     {win_rate:.1f}%  ({report.win_count}W / {loss_count}L)")
+            print(f"  Avg Return:   {sign}{report.avg_return_pct:.1f}%")
+            print(f"  Total Return: {total_sign}{report.total_return_pct:.1f}%")
+            print(f"  Max Drawdown: -{report.max_drawdown_pct:.1f}%")
+            if report.sharpe_ratio is not None:
+                print(f"  Sharpe Ratio: {report.sharpe_ratio:.2f}")
+
+            # Regime analysis
+            if report.regimes:
+                print()
+                print("  ─── REGIME ANALYSIS ───────────────────────────")
+                if report.trade_count < 10:
+                    print("  ⚠ Regime detection requires 10+ trades")
+                print(f"  {'Period':<22}{'Label':<12}{'Trades':<9}{'Win Rate':<11}Avg Return")
+                for regime in report.regimes:
+                    period = f"{regime.start_date[:7]} – {regime.end_date[:7]}"
+                    sign = "+" if regime.avg_return_pct >= 0 else ""
+                    print(f"  {period:<22}{regime.label:<12}{regime.trade_count:<9}{regime.win_rate*100:.1f}%{'':>5}{sign}{regime.avg_return_pct:.1f}%")
+            elif report.trade_count >= 10:
+                print()
+                print("  ─── REGIME ANALYSIS ───────────────────────────")
+                print("  No regime shifts detected.")
+
+            # Trade log
+            print()
+            print("  ─── TRADE LOG ──────────────────────────────────")
+            print(f"  {'#':<4}{'Trigger':<13}{'Entry':<13}{'Exit':<13}{'Return':<9}Action")
+            for i, trade in enumerate(report.trades, 1):
+                ret_sign = "+" if trade.return_pct >= 0 else ""
+                action_str = trade.action_type
+                if trade.option_details:
+                    strike = trade.option_details.get("strike_strategy", "")
+                    exp = trade.option_details.get("expiration_days", "")
+                    action_str = f"{trade.action_type} ({strike}, {exp}d)"
+                print(f"  {i:<4}{trade.trigger_date:<13}{trade.entry_date:<13}{trade.exit_date:<13}{ret_sign}{trade.return_pct:.1f}%{'':>3}{action_str}")
+        else:
+            if report.trigger_count == 0:
+                print()
+                print("  No qualifying events detected. Try: lower --spike-threshold,")
+                print("  wider date range, or provide --events manually.")
+            else:
+                print()
+                print("  Events detected but no trades entered (no qualifying dips).")
+
+        # No-entry events
+        if no_entry_events:
+            print()
+            print("  ─── NO-ENTRY EVENTS ────────────────────────────")
+            print(f"  {'Date':<13}{'Spike':<9}{'Volume':<9}Reason")
+            for ne in no_entry_events:
+                print(f"  {ne['date']:<13}+{ne['spike_pct']:.1f}%{'':>3}{ne['volume_multiple']:.1f}x{'':>4}{ne['reason']}")
+
+        if report.sample_size_warning and report.trade_count > 0:
+            print()
+            print(f"  Warning: Only {report.trade_count} trades — results may not be statistically meaningful.")
+
+        if report.trade_count > 0 and report.trade_count < 10 and report.regimes:
+            print(f"  Warning: Fewer than 10 trades — regime analysis may be unreliable.")
+
+        print("═" * 51)
+
+        audit.log("news_dip_backtested", "pattern_lab", {
+            "pattern_id": args.pattern_id,
+            "backtest_id": backtest_id,
+            "ticker": ticker,
+            "events_detected": report.trigger_count,
+            "trades_entered": report.trade_count,
+            "events_source": events_source,
+        })
 
 
 def _run_covered_call_backtest(
@@ -978,7 +1156,7 @@ def _pattern_paper_trade(
     args: argparse.Namespace,
 ) -> None:
     """Activate a pattern for paper trading."""
-    from finance_agent.patterns.executor import CoveredCallMonitor, PatternMonitor
+    from finance_agent.patterns.executor import CoveredCallMonitor, NewsPatternMonitor, PatternMonitor
     from finance_agent.patterns.models import RuleSet
     from finance_agent.patterns.storage import get_pattern, update_pattern_status
 
@@ -994,6 +1172,13 @@ def _pattern_paper_trade(
     tickers = args.tickers.split(",") if args.tickers else None
     rule_set = RuleSet.model_validate_json(pattern["rule_set_json"])
     is_covered_call = rule_set.action.action_type.value == "sell_call"
+
+    # Block --auto-approve for qualitative patterns (safety requirement)
+    is_qualitative = rule_set.trigger_type.value == "qualitative"
+    if is_qualitative and args.auto_approve:
+        print("Error: --auto-approve is not allowed for qualitative patterns (safety requirement).")
+        print("Qualitative triggers require human confirmation.")
+        return
 
     update_pattern_status(conn, args.pattern_id, "paper_trading")
 
@@ -1020,6 +1205,8 @@ def _pattern_paper_trade(
         monitor = CoveredCallMonitor(
             conn, audit, settings, args.pattern_id, tickers, args.auto_approve, shares=shares,
         )
+    elif is_qualitative:
+        monitor = NewsPatternMonitor(conn, audit, settings, args.pattern_id, tickers, auto_approve=False)
     else:
         monitor = PatternMonitor(conn, audit, settings, args.pattern_id, tickers, args.auto_approve)
 
@@ -1143,6 +1330,13 @@ def _pattern_compare(conn: sqlite3.Connection, pattern_ids: list[int]) -> None:
         for p, _ in patterns
     )
 
+    # Detect if all patterns are news dip (qualitative + buy_call)
+    all_news_dip = all(
+        json.loads(p["rule_set_json"]).get("trigger_type") == "qualitative"
+        and json.loads(p["rule_set_json"]).get("action", {}).get("action_type") == "buy_call"
+        for p, _ in patterns
+    )
+
     print("Pattern Comparison:")
     print()
     print(f"  {'Metric':<22}", end="")
@@ -1227,6 +1421,88 @@ def _pattern_compare(conn: sqlite3.Connection, pattern_ids: list[int]) -> None:
         for summary in summaries:
             print(f"  {summary['rolled_count']:<20}", end="")
         print()
+
+    elif all_news_dip:
+        # News dip pattern comparison — show events, trades, regimes
+        print()
+        print("═" * 51)
+        print("  PATTERN COMPARISON")
+        print("═" * 51)
+        print()
+        print(f"  {'ID':<5}{'Name':<20}{'Events':<9}{'Trades':<9}{'Win%':<9}{'Avg Ret':<10}Regimes")
+
+        for p, bt in patterns:
+            pid = p["id"]
+            name = p["name"][:18]
+            events = bt["trigger_count"] if bt else 0
+            trades = bt["trade_count"] if bt else 0
+            if bt and bt["trade_count"] > 0:
+                wr = f"{bt['win_count'] / bt['trade_count'] * 100:.1f}%"
+                sign = "+" if bt["avg_return_pct"] >= 0 else ""
+                avg_ret = f"{sign}{bt['avg_return_pct']:.1f}%"
+            else:
+                wr = "N/A"
+                avg_ret = "N/A"
+
+            # Summarize regimes from backtest regimes_json
+            regime_str = "—"
+            if bt and bt.get("regimes_json"):
+                try:
+                    regimes = json.loads(bt["regimes_json"])
+                    if regimes:
+                        counts = {}
+                        for r in regimes:
+                            label = r.get("label", "unknown")
+                            counts[label] = counts.get(label, 0) + 1
+                        parts = [f"{c} {l}" for l, c in counts.items()]
+                        regime_str = ", ".join(parts)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            print(f"  {pid:<5}{name:<20}{events:<9}{trades:<9}{wr:<9}{avg_ret:<10}{regime_str}")
+
+        # Regime overlay table
+        # Collect all regimes across patterns
+        all_regimes = {}  # pid -> list of regime dicts
+        for p, bt in patterns:
+            if bt and bt.get("regimes_json"):
+                try:
+                    all_regimes[p["id"]] = json.loads(bt["regimes_json"])
+                except (json.JSONDecodeError, TypeError):
+                    all_regimes[p["id"]] = []
+            else:
+                all_regimes[p["id"]] = []
+
+        has_any_regimes = any(r for r in all_regimes.values())
+        if has_any_regimes:
+            # Collect all unique periods
+            all_periods = set()
+            for regimes in all_regimes.values():
+                for r in regimes:
+                    period = f"{r.get('start_date', '')[:7]} – {r.get('end_date', '')[:7]}"
+                    all_periods.add(period)
+
+            if all_periods:
+                print()
+                print("  ─── REGIME OVERLAY ─────────────────────────────")
+                header = f"  {'Period':<22}"
+                for p, _ in patterns:
+                    header += f"{'ID ' + str(p['id']):<12}"
+                print(header)
+
+                for period in sorted(all_periods):
+                    row = f"  {period:<22}"
+                    for p, _ in patterns:
+                        label = "—"
+                        for r in all_regimes.get(p["id"], []):
+                            rp = f"{r.get('start_date', '')[:7]} – {r.get('end_date', '')[:7]}"
+                            if rp == period:
+                                label = r.get("label", "—")
+                                break
+                        row += f"{label:<12}"
+                    print(row)
+
+        print("═" * 51)
 
     else:
         # Standard pattern comparison

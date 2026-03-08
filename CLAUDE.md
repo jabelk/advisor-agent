@@ -78,6 +78,10 @@ This project started as a copy of finance-agent and inherits:
 ## Active Technologies
 - Python 3.12+ + alpaca-py (broker + market data), anthropic (Claude for pattern parsing), pydantic (structured models), fastmcp (MCP tool exposure) (011-pattern-lab)
 - SQLite (WAL mode) — new migration 007 adds pattern tables alongside existing schema (011-pattern-lab)
+- Python 3.12+ + alpaca-py 0.43.2 (options trading via PositionIntent.SELL_TO_OPEN, OptionLegRequest, OptionHistoricalDataClient), anthropic (Claude API for pattern parsing), pydantic 2.0+ (structured models) (012-covered-call-strategy)
+- SQLite (WAL mode) — extends existing Pattern Lab tables, adds covered_call_cycle table (012-covered-call-strategy)
+- Python 3.12+ + alpaca-py (market data), anthropic (pattern parsing), pydantic (models) (013-pharma-news-dip)
+- SQLite (WAL mode) — no new tables needed, extends existing backtest/trade models (013-pharma-news-dip)
 
 ## Recent Changes
 - 011-pattern-lab: Added Python 3.12+ + alpaca-py (broker + market data), anthropic (Claude for pattern parsing), pydantic (structured models), fastmcp (MCP tool exposure)
