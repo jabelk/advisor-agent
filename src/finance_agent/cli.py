@@ -78,6 +78,36 @@ def main(argv: list[str] | None = None) -> None:
     profile_parser = subparsers.add_parser("profile", help="Show company research profile")
     profile_parser.add_argument("ticker", help="Stock ticker symbol")
 
+    # Pattern Lab commands
+    pattern_parser = subparsers.add_parser("pattern", help="Pattern Lab: describe, backtest, and paper trade patterns")
+    pattern_sub = pattern_parser.add_subparsers(dest="pattern_command")
+
+    pat_describe = pattern_sub.add_parser("describe", help="Describe a trading pattern in plain text")
+    pat_describe.add_argument("description", help="Plain-text pattern description")
+
+    pat_backtest = pattern_sub.add_parser("backtest", help="Backtest a pattern against historical data")
+    pat_backtest.add_argument("pattern_id", type=int, help="Pattern ID to backtest")
+    pat_backtest.add_argument("--start", help="Start date (YYYY-MM-DD, default: 1 year ago)")
+    pat_backtest.add_argument("--end", help="End date (YYYY-MM-DD, default: today)")
+    pat_backtest.add_argument("--tickers", help="Comma-separated tickers to test against")
+
+    pat_paper = pattern_sub.add_parser("paper-trade", help="Activate pattern for paper trading")
+    pat_paper.add_argument("pattern_id", type=int, help="Pattern ID to paper trade")
+    pat_paper.add_argument("--auto-approve", action="store_true", help="Skip manual approval for trades")
+    pat_paper.add_argument("--tickers", help="Limit monitoring to specific tickers")
+
+    pat_list = pattern_sub.add_parser("list", help="List all patterns")
+    pat_list.add_argument("--status", help="Filter by status (draft, backtested, paper_trading, retired)")
+
+    pat_show = pattern_sub.add_parser("show", help="Show pattern details")
+    pat_show.add_argument("pattern_id", type=int, help="Pattern ID")
+
+    pat_compare = pattern_sub.add_parser("compare", help="Compare pattern performance")
+    pat_compare.add_argument("pattern_ids", type=int, nargs="+", help="Pattern IDs to compare")
+
+    pat_retire = pattern_sub.add_parser("retire", help="Retire a pattern")
+    pat_retire.add_argument("pattern_id", type=int, help="Pattern ID to retire")
+
     # MCP server command
     mcp_parser = subparsers.add_parser("mcp", help="Start the MCP research server")
     mcp_parser.add_argument(
@@ -101,6 +131,8 @@ def main(argv: list[str] | None = None) -> None:
         cmd_signals(args)
     elif args.command == "profile":
         cmd_profile(args)
+    elif args.command == "pattern":
+        cmd_pattern(args)
     elif args.command == "mcp":
         cmd_mcp(args)
     else:
@@ -571,6 +603,440 @@ def cmd_profile(args: argparse.Namespace) -> None:
             print(f"  {label:<24}{count} signals")
     finally:
         close_connection(conn)
+
+
+def cmd_pattern(args: argparse.Namespace) -> None:
+    """Handle pattern subcommands."""
+    from finance_agent.db import close_connection
+
+    conn, audit, settings = _get_db_and_audit()
+
+    try:
+        if args.pattern_command == "describe":
+            _pattern_describe(conn, audit, settings, args.description)
+        elif args.pattern_command == "backtest":
+            _pattern_backtest(conn, audit, settings, args)
+        elif args.pattern_command == "paper-trade":
+            _pattern_paper_trade(conn, audit, settings, args)
+        elif args.pattern_command == "list":
+            _pattern_list(conn, args)
+        elif args.pattern_command == "show":
+            _pattern_show(conn, args.pattern_id)
+        elif args.pattern_command == "compare":
+            _pattern_compare(conn, args.pattern_ids)
+        elif args.pattern_command == "retire":
+            _pattern_retire(conn, audit, args.pattern_id)
+        else:
+            print("Usage: finance-agent pattern {describe|backtest|paper-trade|list|show|compare|retire}")
+            sys.exit(1)
+    finally:
+        close_connection(conn)
+
+
+def _pattern_describe(
+    conn: sqlite3.Connection,
+    audit: AuditLogger,
+    settings: Settings,
+    description: str,
+) -> None:
+    """Parse a plain-text pattern description and create a draft pattern."""
+    from finance_agent.patterns.parser import parse_pattern_description
+    from finance_agent.patterns.storage import create_pattern
+
+    if not settings.anthropic_available:
+        print("Error: ANTHROPIC_API_KEY is required for pattern description parsing")
+        sys.exit(1)
+
+    print(f"Parsing pattern description...")
+    print()
+
+    result = parse_pattern_description(description, settings.anthropic_api_key)
+
+    if not result.is_complete:
+        print("The description needs more detail. Please clarify:")
+        print()
+        for q in result.clarifying_questions:
+            print(f"  - {q.question}")
+            if q.suggestions:
+                print(f"    Suggestions: {', '.join(q.suggestions)}")
+            print()
+        return
+
+    rule_set = result.rule_set
+    assert rule_set is not None
+
+    print(f"Pattern: {result.suggested_name}")
+    print(f"Status: draft")
+    print()
+    print("Trigger:")
+    print(f"  Type: {rule_set.trigger_type}")
+    for tc in rule_set.trigger_conditions:
+        print(f"  Condition: {tc.description}")
+    if rule_set.sector_filter:
+        print(f"  Sector: {rule_set.sector_filter}")
+    print()
+    print("Entry Signal:")
+    print(f"  {rule_set.entry_signal.description}")
+    print(f"  Window: {rule_set.entry_signal.window_days} trading days")
+    print()
+    print("Action:")
+    print(f"  {rule_set.action.description}")
+    if rule_set.action.action_type.value.startswith("buy_") or rule_set.action.action_type.value.startswith("sell_"):
+        if "call" in rule_set.action.action_type.value or "put" in rule_set.action.action_type.value:
+            print(f"  Strike: {rule_set.action.strike_strategy.value}")
+            print(f"  Expiration: {rule_set.action.expiration_days} days")
+    print()
+    print("Exit Criteria:")
+    print(f"  {rule_set.exit_criteria.description}")
+    print(f"  Profit target: {rule_set.exit_criteria.profit_target_pct}%")
+    print(f"  Stop loss: {rule_set.exit_criteria.stop_loss_pct}%")
+    if rule_set.exit_criteria.max_hold_days:
+        print(f"  Max hold: {rule_set.exit_criteria.max_hold_days} days")
+    print()
+
+    if result.defaults_applied:
+        print("Defaults applied:")
+        for d in result.defaults_applied:
+            print(f"  - {d}")
+        print()
+
+    # Ask for confirmation
+    try:
+        choice = input("Confirm this pattern? [Y/cancel]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("\nCancelled.")
+        return
+
+    if choice not in ("y", "yes", ""):
+        print("Cancelled.")
+        return
+
+    rule_set_json = rule_set.model_dump_json()
+    pattern_id = create_pattern(conn, result.suggested_name, description, rule_set_json)
+    print(f"\nPattern saved as #{pattern_id} (status: draft)")
+
+    audit.log("pattern_created", "pattern_lab", {
+        "pattern_id": pattern_id,
+        "name": result.suggested_name,
+    })
+
+
+def _pattern_backtest(
+    conn: sqlite3.Connection,
+    audit: AuditLogger,
+    settings: Settings,
+    args: argparse.Namespace,
+) -> None:
+    """Run a backtest for a pattern."""
+    from datetime import date, timedelta
+
+    from finance_agent.patterns.backtest import run_backtest
+    from finance_agent.patterns.market_data import fetch_and_cache_bars
+    from finance_agent.patterns.models import RuleSet
+    from finance_agent.patterns.storage import get_pattern, save_backtest_result
+
+    pattern = get_pattern(conn, args.pattern_id)
+    if not pattern:
+        print(f"Error: Pattern #{args.pattern_id} not found")
+        sys.exit(1)
+
+    # Parse dates
+    end_date = args.end or date.today().isoformat()
+    start_date = args.start or (date.today() - timedelta(days=365)).isoformat()
+
+    # Parse tickers
+    tickers = args.tickers.split(",") if args.tickers else None
+    if not tickers:
+        # Use watchlist tickers as default
+        from finance_agent.data.watchlist import list_companies
+        companies = list_companies(conn)
+        tickers = [c["ticker"] for c in companies]
+        if not tickers:
+            print("Error: No tickers specified and watchlist is empty. Use --tickers or add to watchlist.")
+            sys.exit(1)
+
+    rule_set = RuleSet.model_validate_json(pattern["rule_set_json"])
+
+    print(f"Backtesting pattern #{args.pattern_id}: {pattern['name']}")
+    print(f"Period: {start_date} to {end_date}")
+    print(f"Tickers: {', '.join(tickers)}")
+    print()
+
+    # Fetch price data for all tickers
+    print("Fetching market data...")
+    all_bars: dict[str, list[dict]] = {}
+    for ticker in tickers:
+        bars = fetch_and_cache_bars(
+            conn, ticker, start_date, end_date, "day",
+            settings.active_api_key, settings.active_secret_key,
+        )
+        if bars:
+            all_bars[ticker] = bars
+            print(f"  {ticker}: {len(bars)} bars")
+        else:
+            print(f"  {ticker}: no data available")
+
+    if not all_bars:
+        print("\nError: No price data available for any ticker")
+        sys.exit(1)
+
+    # Run backtest
+    print("\nRunning backtest...")
+    report = run_backtest(args.pattern_id, rule_set, all_bars, start_date, end_date)
+
+    # Save results
+    backtest_id = save_backtest_result(conn, report)
+
+    # Display results
+    print(f"\nBacktest Results (saved as #{backtest_id}):")
+    print(f"  Triggers: {report.trigger_count}")
+    print(f"  Trades: {report.trade_count}")
+    if report.trade_count > 0:
+        print(f"  Win rate: {report.win_count}/{report.trade_count} ({report.win_count/report.trade_count*100:.1f}%)")
+        print(f"  Avg return: {report.avg_return_pct:.2f}%")
+        print(f"  Total return: {report.total_return_pct:.2f}%")
+        print(f"  Max drawdown: {report.max_drawdown_pct:.2f}%")
+        if report.sharpe_ratio is not None:
+            print(f"  Sharpe ratio: {report.sharpe_ratio:.2f}")
+    else:
+        print("  No trades triggered")
+
+    if report.sample_size_warning:
+        print(f"\n  WARNING: Only {report.trigger_count} triggers — sample too small for statistical significance (need 30+)")
+
+    if report.regimes:
+        print(f"\nRegime Analysis:")
+        for regime in report.regimes:
+            print(f"  {regime.start_date} to {regime.end_date}: {regime.label}")
+            print(f"    Win rate: {regime.win_rate*100:.1f}%, Avg return: {regime.avg_return_pct:.2f}%")
+            if regime.explanation:
+                print(f"    Possible explanation: {regime.explanation}")
+
+    audit.log("backtest_run", "pattern_lab", {
+        "pattern_id": args.pattern_id,
+        "backtest_id": backtest_id,
+        "trade_count": report.trade_count,
+        "win_rate": report.win_count / report.trade_count if report.trade_count > 0 else 0,
+    })
+
+
+def _pattern_paper_trade(
+    conn: sqlite3.Connection,
+    audit: AuditLogger,
+    settings: Settings,
+    args: argparse.Namespace,
+) -> None:
+    """Activate a pattern for paper trading."""
+    from finance_agent.patterns.executor import PatternMonitor
+    from finance_agent.patterns.storage import get_pattern, update_pattern_status
+
+    pattern = get_pattern(conn, args.pattern_id)
+    if not pattern:
+        print(f"Error: Pattern #{args.pattern_id} not found")
+        sys.exit(1)
+
+    if pattern["status"] not in ("backtested", "paper_trading"):
+        print(f"Error: Pattern must be backtested before paper trading (current status: {pattern['status']})")
+        sys.exit(1)
+
+    tickers = args.tickers.split(",") if args.tickers else None
+
+    update_pattern_status(conn, args.pattern_id, "paper_trading")
+
+    print(f"Activating paper trading for pattern #{args.pattern_id}: {pattern['name']}")
+    if args.auto_approve:
+        print("Auto-approve: ON (trades will execute without confirmation)")
+    else:
+        print("Auto-approve: OFF (you'll be asked to approve each trade)")
+    if tickers:
+        print(f"Monitoring tickers: {', '.join(tickers)}")
+    print()
+    print("Monitoring for triggers... (Ctrl+C to stop)")
+
+    audit.log("paper_trade_started", "pattern_lab", {
+        "pattern_id": args.pattern_id,
+        "auto_approve": args.auto_approve,
+    })
+
+    monitor = PatternMonitor(conn, audit, settings, args.pattern_id, tickers, args.auto_approve)
+    try:
+        monitor.run()
+    except KeyboardInterrupt:
+        print("\nStopped monitoring.")
+
+
+def _pattern_list(conn: sqlite3.Connection, args: argparse.Namespace) -> None:
+    """List all patterns."""
+    from finance_agent.patterns.storage import get_backtest_results, get_paper_trade_summary, list_patterns
+
+    patterns = list_patterns(conn, status=args.status)
+
+    if not patterns:
+        print("No patterns found. Create one with: finance-agent pattern describe \"<description>\"")
+        return
+
+    print(f"Patterns ({len(patterns)}):")
+    print()
+    print(f"  {'ID':<5}{'Name':<30}{'Status':<15}{'Win Rate':<12}{'P&L':<10}")
+    print(f"  {'─'*5}{'─'*30}{'─'*15}{'─'*12}{'─'*10}")
+
+    for p in patterns:
+        win_rate = ""
+        pnl = ""
+
+        # Get latest backtest win rate
+        backtests = get_backtest_results(conn, p["id"])
+        if backtests:
+            latest = backtests[0]
+            if latest["trade_count"] > 0:
+                wr = latest["win_count"] / latest["trade_count"] * 100
+                win_rate = f"{wr:.0f}%"
+
+        # Get paper trade P&L
+        if p["status"] == "paper_trading":
+            summary = get_paper_trade_summary(conn, p["id"])
+            if summary["total_trades"] > 0:
+                pnl = f"${summary['total_pnl']:.2f}"
+
+        print(f"  {p['id']:<5}{p['name']:<30}{p['status']:<15}{win_rate:<12}{pnl:<10}")
+
+
+def _pattern_show(conn: sqlite3.Connection, pattern_id: int) -> None:
+    """Show detailed pattern information."""
+    import json
+
+    from finance_agent.patterns.storage import get_backtest_results, get_paper_trades, get_pattern
+
+    pattern = get_pattern(conn, pattern_id)
+    if not pattern:
+        print(f"Error: Pattern #{pattern_id} not found")
+        sys.exit(1)
+
+    rules = json.loads(pattern["rule_set_json"])
+
+    print(f"Pattern #{pattern['id']}: {pattern['name']}")
+    print(f"Status: {pattern['status']}")
+    print(f"Created: {pattern['created_at'][:10]}")
+    print()
+    print(f"Description: {pattern['description']}")
+    print()
+    print("Rules:")
+    print(f"  Trigger type: {rules.get('trigger_type', 'N/A')}")
+    for tc in rules.get("trigger_conditions", []):
+        print(f"  Trigger: {tc.get('description', tc)}")
+    entry = rules.get("entry_signal", {})
+    print(f"  Entry: {entry.get('description', 'N/A')}")
+    action = rules.get("action", {})
+    print(f"  Action: {action.get('description', 'N/A')}")
+    exit_c = rules.get("exit_criteria", {})
+    print(f"  Exit: {exit_c.get('description', 'N/A')}")
+
+    # Backtest results
+    backtests = get_backtest_results(conn, pattern_id)
+    if backtests:
+        print(f"\nBacktest Results ({len(backtests)}):")
+        for bt in backtests:
+            wr = bt["win_count"] / bt["trade_count"] * 100 if bt["trade_count"] > 0 else 0
+            print(f"  [{bt['created_at'][:10]}] {bt['date_range_start']} to {bt['date_range_end']}: "
+                  f"{bt['trade_count']} trades, {wr:.0f}% win rate, {bt['avg_return_pct']:.2f}% avg return")
+
+    # Paper trades
+    trades = get_paper_trades(conn, pattern_id)
+    if trades:
+        print(f"\nPaper Trades ({len(trades)}):")
+        for t in trades:
+            pnl_str = f"${t['pnl']:.2f}" if t["pnl"] is not None else "open"
+            print(f"  [{t['proposed_at'][:10]}] {t['ticker']} {t['direction']} {t['quantity']}x "
+                  f"({t['status']}) P&L: {pnl_str}")
+
+
+def _pattern_compare(conn: sqlite3.Connection, pattern_ids: list[int]) -> None:
+    """Compare performance across patterns."""
+    from finance_agent.patterns.storage import get_backtest_results, get_pattern
+
+    patterns = []
+    for pid in pattern_ids:
+        p = get_pattern(conn, pid)
+        if not p:
+            print(f"Warning: Pattern #{pid} not found, skipping")
+            continue
+        backtests = get_backtest_results(conn, pid)
+        patterns.append((p, backtests[0] if backtests else None))
+
+    if len(patterns) < 2:
+        print("Need at least 2 valid patterns to compare")
+        sys.exit(1)
+
+    print("Pattern Comparison:")
+    print()
+    print(f"  {'Metric':<20}", end="")
+    for p, _ in patterns:
+        print(f"  {p['name'][:18]:<20}", end="")
+    print()
+    print(f"  {'─'*20}", end="")
+    for _ in patterns:
+        print(f"  {'─'*20}", end="")
+    print()
+
+    # Win rate
+    print(f"  {'Win Rate':<20}", end="")
+    for _, bt in patterns:
+        if bt and bt["trade_count"] > 0:
+            wr = bt["win_count"] / bt["trade_count"] * 100
+            print(f"  {wr:.1f}%{'':<16}", end="")
+        else:
+            print(f"  {'N/A':<20}", end="")
+    print()
+
+    # Avg return
+    print(f"  {'Avg Return':<20}", end="")
+    for _, bt in patterns:
+        if bt:
+            print(f"  {bt['avg_return_pct']:.2f}%{'':<15}", end="")
+        else:
+            print(f"  {'N/A':<20}", end="")
+    print()
+
+    # Max drawdown
+    print(f"  {'Max Drawdown':<20}", end="")
+    for _, bt in patterns:
+        if bt:
+            print(f"  {bt['max_drawdown_pct']:.2f}%{'':<15}", end="")
+        else:
+            print(f"  {'N/A':<20}", end="")
+    print()
+
+    # Trade count
+    print(f"  {'Trades':<20}", end="")
+    for _, bt in patterns:
+        if bt:
+            print(f"  {bt['trade_count']:<20}", end="")
+        else:
+            print(f"  {'N/A':<20}", end="")
+    print()
+
+
+def _pattern_retire(
+    conn: sqlite3.Connection,
+    audit: AuditLogger,
+    pattern_id: int,
+) -> None:
+    """Retire a pattern."""
+    from finance_agent.patterns.storage import get_pattern, update_pattern_status
+
+    pattern = get_pattern(conn, pattern_id)
+    if not pattern:
+        print(f"Error: Pattern #{pattern_id} not found")
+        sys.exit(1)
+
+    if pattern["status"] == "retired":
+        print(f"Pattern #{pattern_id} is already retired")
+        return
+
+    update_pattern_status(conn, pattern_id, "retired")
+    print(f"Pattern #{pattern_id} ({pattern['name']}) has been retired")
+
+    audit.log("pattern_retired", "pattern_lab", {"pattern_id": pattern_id})
 
 
 def cmd_mcp(args: argparse.Namespace) -> None:
