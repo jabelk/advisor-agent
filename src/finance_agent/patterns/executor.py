@@ -721,3 +721,133 @@ class CoveredCallMonitor(PatternMonitor):
                     "ticker": ticker,
                     "premium_kept": premium_collected,
                 })
+
+
+class NewsPatternMonitor(PatternMonitor):
+    """Extended monitor for news-driven (qualitative) patterns.
+
+    Requires human confirmation when a price spike is detected,
+    since qualitative triggers need human judgment about whether
+    the spike was caused by actual news vs. noise.
+    """
+
+    def _evaluate_trigger(self, ticker: str) -> bool:
+        """Check for price spike + volume matching trigger thresholds."""
+        try:
+            from alpaca.data.historical import StockHistoricalDataClient
+            from alpaca.data.requests import StockBarsRequest
+            from alpaca.data.timeframe import TimeFrame
+            from alpaca.data.enums import DataFeed
+        except ImportError:
+            logger.error("alpaca-py required for live monitoring")
+            return False
+
+        client = StockHistoricalDataClient(
+            self.settings.active_api_key,
+            self.settings.active_secret_key,
+        )
+
+        from datetime import timedelta
+        end = datetime.now(UTC)
+        start = end - timedelta(days=30)  # Need 20+ days for volume average
+
+        request = StockBarsRequest(
+            symbol_or_symbols=ticker,
+            timeframe=TimeFrame.Day,
+            start=start,
+            end=end,
+            feed=DataFeed.IEX,
+        )
+
+        try:
+            response = client.get_stock_bars(request)
+        except Exception as e:
+            logger.error("Failed to fetch bars for %s: %s", ticker, e)
+            return False
+
+        if ticker not in response.data or len(response.data[ticker]) < 2:
+            return False
+
+        bars = response.data[ticker]
+        latest = bars[-1]
+        previous = bars[-2]
+
+        # Calculate price change
+        if previous.close <= 0:
+            return False
+        price_change_pct = ((latest.close - previous.close) / previous.close) * 100
+
+        # Calculate volume multiple vs 20-day average
+        lookback_bars = bars[:-1]  # All bars except latest
+        if not lookback_bars:
+            return False
+        avg_volume = sum(b.volume for b in lookback_bars) / len(lookback_bars)
+        if avg_volume <= 0:
+            return False
+        volume_multiple = latest.volume / avg_volume
+
+        # Check thresholds from trigger conditions
+        spike_threshold = 5.0
+        volume_threshold = 1.5
+        for condition in self.rule_set.trigger_conditions:
+            if condition.field == "price_change_pct":
+                spike_threshold = float(condition.value)
+            elif condition.field == "volume_spike":
+                volume_threshold = float(condition.value)
+
+        if price_change_pct < spike_threshold or volume_multiple < volume_threshold:
+            return False
+
+        # Store trigger details for the confirmation prompt
+        self._pending_trigger = {
+            "ticker": ticker,
+            "prev_price": previous.close,
+            "curr_price": latest.close,
+            "price_change_pct": price_change_pct,
+            "volume": latest.volume,
+            "volume_multiple": volume_multiple,
+            "date": latest.timestamp.strftime("%Y-%m-%d") if hasattr(latest.timestamp, "strftime") else str(latest.timestamp)[:10],
+        }
+        return True
+
+    def _propose_trade(self, ticker: str) -> None:
+        """Display trigger confirmation prompt before proposing a trade."""
+        trigger = getattr(self, "_pending_trigger", None)
+        if not trigger:
+            return
+
+        # Display confirmation prompt per contracts/cli.md
+        print()
+        print("\u2550" * 51)
+        print(f"  \u26a1 TRIGGER DETECTED: {ticker}")
+        print(f"  Price: ${trigger['prev_price']:.2f} \u2192 ${trigger['curr_price']:.2f} (+{trigger['price_change_pct']:.1f}%)")
+        print(f"  Volume: {trigger['volume']:,.0f} ({trigger['volume_multiple']:.1f}x average)")
+        print(f"  Date: {trigger['date']}")
+        print()
+        print("  This looks like a significant pharma event.")
+
+        try:
+            choice = input("  Confirm this is real news? (y/n/skip): ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\n  Skipped.")
+            return
+
+        if choice == "y":
+            # Confirmed \u2014 proceed to propose trade via parent class
+            super()._propose_trade(ticker)
+        elif choice == "n":
+            # Rejected \u2014 mark as false positive
+            now = datetime.now(UTC).strftime("%H:%M:%S")
+            print(f"  [{now}] Marked as false positive. Resuming monitoring.")
+            self.audit.log("news_trigger_rejected", "pattern_lab", {
+                "pattern_id": self.pattern_id,
+                "ticker": ticker,
+                "price_change_pct": trigger["price_change_pct"],
+                "volume_multiple": trigger["volume_multiple"],
+            })
+        else:
+            # Skip \u2014 continue monitoring
+            print("  Skipped. Continuing to monitor.")
+
+        print("\u2550" * 51)
+        self._pending_trigger = None

@@ -11,6 +11,9 @@ from finance_agent.patterns.models import (
     BacktestTrade,
     CoveredCallCycle,
     CoveredCallReport,
+    DetectedEvent,
+    EventDetectionConfig,
+    RegimeConfig,
     RegimePeriod,
     RuleSet,
 )
@@ -725,3 +728,105 @@ def _find_bar_index_by_date(bars: list[dict], date_str: str) -> int | None:
         if bar["bar_timestamp"][:10] >= date_str:
             return i
     return None
+
+
+def run_news_dip_backtest(
+    pattern_id: int,
+    rule_set: RuleSet,
+    bars: list[dict],
+    ticker: str,
+    start_date: str,
+    end_date: str,
+    event_config: EventDetectionConfig,
+) -> tuple[BacktestReport, list[dict]]:
+    """Run a news-dip backtest: detect spike events then look for pullback entries.
+
+    Uses either manually-specified events or automatic spike detection to identify
+    trigger dates, then applies the rule_set's entry/exit logic to simulate trades.
+
+    Args:
+        pattern_id: ID of the pattern being backtested
+        rule_set: Parsed trading rules (entry signal, exit criteria, action)
+        bars: Historical price bars for the ticker (list of dicts with close, high, low, volume, bar_timestamp)
+        ticker: Stock ticker symbol
+        start_date: Backtest start date (YYYY-MM-DD)
+        end_date: Backtest end date (YYYY-MM-DD)
+        event_config: Configuration for event detection (thresholds, manual events, etc.)
+
+    Returns:
+        Tuple of (BacktestReport, no_entry_events) where no_entry_events is a list of dicts
+        with keys: date, spike_pct, volume_multiple, reason
+    """
+    from finance_agent.patterns.event_detection import (
+        detect_spike_events,
+        manual_events_to_detected,
+    )
+
+    # Detect events: manual overrides automatic detection
+    if event_config.manual_events:
+        events: list[DetectedEvent] = manual_events_to_detected(
+            event_config.manual_events, bars, ticker,
+        )
+    else:
+        events = detect_spike_events(bars, ticker, event_config)
+
+    trades: list[BacktestTrade] = []
+    no_entry_events: list[dict] = []
+
+    for event in events:
+        # Find bar index matching the event date
+        trigger_idx = _find_bar_index_by_date(bars, event.date)
+        if trigger_idx is None:
+            continue
+
+        # Look for a dip entry within the window
+        entry_idx = _find_entry(rule_set, bars, trigger_idx)
+
+        if entry_idx is not None:
+            trade = _execute_simulated_trade(ticker, rule_set, bars, entry_idx)
+            if trade:
+                trades.append(trade)
+        else:
+            # Track as a no-entry event
+            pullback_pct = rule_set.entry_signal.value
+            window_days = rule_set.entry_signal.window_days
+            no_entry_events.append({
+                "date": event.date,
+                "spike_pct": event.price_change_pct,
+                "volume_multiple": event.volume_multiple,
+                "reason": f"No {pullback_pct}% pullback within {window_days}-day window",
+            })
+
+    # Sort trades by trigger date
+    trades.sort(key=lambda t: t.trigger_date)
+
+    # Calculate aggregate metrics
+    trigger_count = len(events)
+    trade_count = len(trades)
+    win_count = sum(1 for t in trades if t.return_pct > 0)
+    total_return_pct = sum(t.return_pct for t in trades)
+    avg_return_pct = total_return_pct / trade_count if trade_count > 0 else 0.0
+    max_drawdown_pct = _calculate_max_drawdown(trades)
+    sharpe_ratio = _calculate_sharpe(trades) if trade_count >= 2 else None
+
+    # Regime analysis
+    from finance_agent.patterns.regime import detect_time_based_regimes
+    regimes = detect_time_based_regimes(trades) if trades else []
+
+    report = BacktestReport(
+        pattern_id=pattern_id,
+        date_range_start=start_date,
+        date_range_end=end_date,
+        trigger_count=trigger_count,
+        trade_count=trade_count,
+        win_count=win_count,
+        total_return_pct=total_return_pct,
+        avg_return_pct=avg_return_pct,
+        max_drawdown_pct=max_drawdown_pct,
+        sharpe_ratio=sharpe_ratio,
+        sample_size_warning=trade_count < 5,
+        regimes=regimes,
+        trades=trades,
+    )
+
+    return report, no_entry_events

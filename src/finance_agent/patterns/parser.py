@@ -10,6 +10,8 @@ from finance_agent.patterns.models import (
     PatternParseResult,
     RuleSet,
     StrikeStrategy,
+    TriggerCondition,
+    TriggerType,
 )
 
 logger = logging.getLogger(__name__)
@@ -132,6 +134,71 @@ def _apply_covered_call_defaults(result: PatternParseResult) -> PatternParseResu
     return result
 
 
+def _apply_news_dip_defaults(result: PatternParseResult) -> PatternParseResult:
+    """Post-process parsed result: ensure pharma news dip defaults are applied.
+
+    Detects pharma dip patterns by: trigger_type == qualitative AND
+    sector_filter contains healthcare/pharma AND action_type == buy_call.
+
+    Applies defaults:
+    - price_change_pct >= 5.0 trigger condition (if missing)
+    - volume_spike >= 1.5 trigger condition (if missing)
+    - pullback_pct entry with 2-day window (if entry looks generic)
+    """
+    if not result.is_complete or not result.rule_set:
+        return result
+
+    rs = result.rule_set
+    # Check if this is a pharma news dip pattern
+    is_qualitative = rs.trigger_type.value == "qualitative" if hasattr(rs.trigger_type, 'value') else rs.trigger_type == "qualitative"
+    has_pharma_sector = rs.sector_filter and any(
+        kw in rs.sector_filter.lower() for kw in ("healthcare", "pharma", "biotech")
+    )
+    is_buy_call = rs.action.action_type.value == "buy_call" if hasattr(rs.action.action_type, 'value') else rs.action.action_type == "buy_call"
+
+    if not (is_qualitative and has_pharma_sector and is_buy_call):
+        return result
+
+    defaults_applied = list(result.defaults_applied)
+
+    # Ensure price_change_pct trigger condition exists
+    has_price_change = any(c.field == "price_change_pct" for c in rs.trigger_conditions)
+    if not has_price_change:
+        rs.trigger_conditions.append(TriggerCondition(
+            field="price_change_pct",
+            operator="gte",
+            value="5.0",
+            description="Single-day price spike >= 5%",
+        ))
+        defaults_applied.append("Trigger: price_change_pct >= 5.0% (pharma dip default)")
+        logger.info("Applied pharma dip default: 5%% spike threshold")
+
+    # Ensure volume_spike trigger condition exists
+    has_volume = any(c.field == "volume_spike" for c in rs.trigger_conditions)
+    if not has_volume:
+        rs.trigger_conditions.append(TriggerCondition(
+            field="volume_spike",
+            operator="gte",
+            value="1.5",
+            description="Volume >= 1.5x 20-day average",
+        ))
+        defaults_applied.append("Trigger: volume_spike >= 1.5x (pharma dip default)")
+        logger.info("Applied pharma dip default: 1.5x volume threshold")
+
+    # Ensure entry signal is pullback_pct with 2-day window
+    entry = rs.entry_signal
+    if entry.condition == "time_delay" and entry.value == "0":
+        entry.condition = "pullback_pct"
+        entry.value = "2.0"
+        entry.window_days = 2
+        entry.description = "Buy on 2% pullback within 2 trading days"
+        defaults_applied.append("Entry: 2% pullback within 2-day window (pharma dip default)")
+        logger.info("Applied pharma dip default: 2%% pullback entry")
+
+    result.defaults_applied = defaults_applied
+    return result
+
+
 def parse_pattern_description(
     description: str,
     api_key: str,
@@ -195,7 +262,8 @@ def parse_pattern_description(
         if block.type == "tool_use" and block.name == "output_pattern":
             try:
                 result = PatternParseResult.model_validate(block.input)
-                return _apply_covered_call_defaults(result)
+                result = _apply_covered_call_defaults(result)
+                return _apply_news_dip_defaults(result)
             except Exception as e:
                 logger.error("Failed to parse Claude response: %s", e)
                 return PatternParseResult(
