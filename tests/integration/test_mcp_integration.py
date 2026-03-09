@@ -94,6 +94,7 @@ class TestMCPServerIntegration:
             "run_ab_test",
             "export_backtest",
             "get_option_chain_history",
+            "get_pattern_alerts",
         }
         missing = expected - tool_names
         extra = tool_names - expected

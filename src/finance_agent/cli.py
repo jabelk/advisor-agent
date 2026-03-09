@@ -126,6 +126,24 @@ def main(argv: list[str] | None = None) -> None:
     pat_export.add_argument("--output", help="Output file path (default: auto-generated)")
     pat_export.add_argument("--backtest-id", type=int, help="Specific backtest result ID to export")
 
+    pat_scan = pattern_sub.add_parser("scan", help="Scan all active patterns against live market data")
+    pat_scan.add_argument("--watch", type=int, metavar="N", help="Repeat scan every N minutes")
+    pat_scan.add_argument("--cooldown", type=int, default=24, help="Deduplication cooldown in hours (default: 24)")
+
+    pat_alerts = pattern_sub.add_parser("alerts", help="List and manage pattern alerts")
+    pat_alerts.add_argument("action", nargs="?", help="Action: ack, dismiss, acted (requires alert ID)")
+    pat_alerts.add_argument("alert_id", nargs="?", type=int, help="Alert ID for ack/dismiss/acted actions")
+    pat_alerts.add_argument("--status", help="Filter by status (new, acknowledged, acted_on, dismissed)")
+    pat_alerts.add_argument("--pattern-id", type=int, help="Filter by pattern ID")
+    pat_alerts.add_argument("--ticker", help="Filter by ticker")
+    pat_alerts.add_argument("--days", type=int, default=7, help="Show last N days (default: 7)")
+
+    pat_auto_exec = pattern_sub.add_parser("auto-execute", help="Enable/disable auto-execution for a pattern")
+    pat_auto_exec.add_argument("pattern_id", type=int, help="Pattern ID")
+    pat_auto_exec_group = pat_auto_exec.add_mutually_exclusive_group(required=True)
+    pat_auto_exec_group.add_argument("--enable", action="store_true", help="Enable auto-execution")
+    pat_auto_exec_group.add_argument("--disable", action="store_true", help="Disable auto-execution")
+
     # MCP server command
     mcp_parser = subparsers.add_parser("mcp", help="Start the MCP research server")
     mcp_parser.add_argument(
@@ -648,8 +666,14 @@ def cmd_pattern(args: argparse.Namespace) -> None:
             _pattern_ab_test(conn, audit, settings, args)
         elif args.pattern_command == "export":
             _pattern_export(conn, args)
+        elif args.pattern_command == "scan":
+            _pattern_scan(conn, audit, settings, args)
+        elif args.pattern_command == "alerts":
+            _pattern_alerts(conn, args)
+        elif args.pattern_command == "auto-execute":
+            _pattern_auto_execute(conn, audit, args)
         else:
-            print("Usage: finance-agent pattern {describe|backtest|paper-trade|list|show|compare|retire|ab-test|export}")
+            print("Usage: finance-agent pattern {describe|backtest|paper-trade|list|show|compare|retire|ab-test|export|scan|alerts|auto-execute}")
             sys.exit(1)
     finally:
         close_connection(conn)
@@ -1958,6 +1982,165 @@ def _pattern_export(
     path.write_text(markdown, encoding="utf-8")
 
     print(f"Exported backtest results for pattern #{args.pattern_id} to {output_path}")
+
+
+def _pattern_scan(
+    conn: sqlite3.Connection,
+    audit: AuditLogger,
+    settings: Settings,
+    args: argparse.Namespace,
+) -> None:
+    """Run the pattern scanner against live market data."""
+    import os
+    import time
+
+    from finance_agent.patterns.scanner import run_scan
+
+    api_key = os.environ.get("ALPACA_PAPER_API_KEY", "")
+    secret_key = os.environ.get("ALPACA_PAPER_SECRET_KEY", "")
+    if not api_key or not secret_key:
+        print("Error: ALPACA_PAPER_API_KEY and ALPACA_PAPER_SECRET_KEY must be set")
+        sys.exit(1)
+
+    def _do_scan() -> None:
+        result = run_scan(
+            conn=conn,
+            api_key=api_key,
+            secret_key=secret_key,
+            cooldown_hours=args.cooldown,
+            audit=audit,
+        )
+        print("Pattern Scanner")
+        print(f"  Patterns evaluated: {result['patterns_evaluated']}")
+        print(f"  Tickers scanned: {result['tickers_scanned']}")
+        print(f"  Alerts generated: {result['alerts_generated']}")
+
+        if result["auto_executions"] > 0:
+            print(f"  Auto-executions: {result['auto_executions']}")
+        if result["auto_executions_blocked"] > 0:
+            print(f"  Auto-executions blocked: {result['auto_executions_blocked']}")
+
+        if result["alerts"]:
+            print()
+            print("  NEW ALERTS:")
+            for alert in result["alerts"]:
+                details = alert["trigger_details"]
+                prev = details.get("previous_close", 0)
+                latest = details.get("latest_price", 0)
+                pct = details.get("price_change_pct", 0)
+                vol = details.get("volume_multiple", 0)
+                wr = alert.get("pattern_win_rate")
+                wr_str = f"{wr * 100:.1f}%" if wr is not None else "N/A"
+
+                print(f"  #{alert['id']}  {alert['pattern_name']}  |  {alert['ticker']}  |  {alert['trigger_date']}")
+                print(f"      Price: {pct:+.1f}% (${prev:.2f} → ${latest:.2f})  |  Volume: {vol:.1f}x avg")
+                print(f"      Action: {alert['recommended_action']}  |  Win rate: {wr_str}")
+
+                status_line = f"      Status: {alert['status']}"
+                if alert.get("auto_executed"):
+                    exec_result = alert.get("auto_execute_result", {})
+                    trade_id = exec_result.get("trade_id", "?")
+                    status_line += f"  |  AUTO-EXECUTED: paper trade #{trade_id} submitted"
+                elif (alert.get("auto_execute_result") or {}).get("blocked_reason"):
+                    reason = alert["auto_execute_result"]["blocked_reason"]
+                    status_line += f"  |  AUTO-BLOCKED: {reason}"
+                print(status_line)
+        elif result["patterns_evaluated"] == 0:
+            print("\n  No patterns in paper_trading status. Run 'finance-agent pattern paper-trade <id>' first.")
+
+    if args.watch:
+        print(f"Watching for triggers every {args.watch} minutes. Press Ctrl+C to stop.\n")
+        try:
+            while True:
+                _do_scan()
+                print(f"\n  Next scan in {args.watch} minutes...\n")
+                time.sleep(args.watch * 60)
+        except KeyboardInterrupt:
+            print("\nScanner stopped.")
+    else:
+        _do_scan()
+
+
+def _pattern_alerts(
+    conn: sqlite3.Connection,
+    args: argparse.Namespace,
+) -> None:
+    """List and manage pattern alerts."""
+    from finance_agent.patterns.alert_storage import list_alerts, update_alert_status
+
+    # Handle status update actions: ack, dismiss, acted
+    if args.action in ("ack", "dismiss", "acted"):
+        if not args.alert_id:
+            print(f"Error: alert ID required for '{args.action}' action")
+            sys.exit(1)
+
+        status_map = {"ack": "acknowledged", "dismiss": "dismissed", "acted": "acted_on"}
+        new_status = status_map[args.action]
+
+        if update_alert_status(conn, args.alert_id, new_status):
+            print(f"Alert #{args.alert_id} → {new_status}")
+        else:
+            print(f"Alert #{args.alert_id} not found")
+            sys.exit(1)
+        return
+
+    # List alerts
+    alerts = list_alerts(
+        conn,
+        status=args.status,
+        pattern_id=getattr(args, "pattern_id", None),
+        ticker=args.ticker,
+        days=args.days,
+    )
+
+    if not alerts:
+        print("No alerts found.")
+        return
+
+    print(f"Pattern Alerts (last {args.days} days):\n")
+    for a in alerts:
+        details = a.get("trigger_details", {})
+        pct = details.get("price_change_pct", 0)
+        vol = details.get("volume_multiple", 0)
+        wr = a.get("pattern_win_rate")
+        wr_str = f"{wr * 100:.1f}%" if wr is not None else "N/A"
+
+        status_tag = a["status"].upper()
+        auto_tag = ""
+        if a.get("auto_executed"):
+            auto_tag = " [AUTO-EXECUTED]"
+
+        print(f"  #{a['id']}  [{status_tag}]{auto_tag}  {a['pattern_name']}  |  {a['ticker']}  |  {a['trigger_date']}")
+        print(f"       Price: {pct:+.1f}%  |  Volume: {vol:.1f}x  |  Action: {a['recommended_action']}  |  Win rate: {wr_str}")
+
+
+def _pattern_auto_execute(
+    conn: sqlite3.Connection,
+    audit: AuditLogger,
+    args: argparse.Namespace,
+) -> None:
+    """Enable or disable auto-execution for a pattern."""
+    from finance_agent.patterns.storage import get_pattern
+
+    pattern = get_pattern(conn, args.pattern_id)
+    if not pattern:
+        print(f"Error: pattern #{args.pattern_id} not found")
+        sys.exit(1)
+
+    new_value = 1 if args.enable else 0
+    conn.execute(
+        "UPDATE trading_pattern SET auto_execute = ? WHERE id = ?",
+        (new_value, args.pattern_id),
+    )
+    conn.commit()
+
+    action = "enabled" if args.enable else "disabled"
+    print(f"Auto-execution {action} for pattern #{args.pattern_id} ({pattern['name']})")
+
+    audit.log("auto_execute_toggle", "pattern_lab", {
+        "pattern_id": args.pattern_id,
+        "enabled": args.enable,
+    })
 
 
 def cmd_mcp(args: argparse.Namespace) -> None:
