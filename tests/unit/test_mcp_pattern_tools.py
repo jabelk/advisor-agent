@@ -30,7 +30,7 @@ def _call_tool(tool_fn, mcp_db_path: str, env_vars: dict | None = None, **kwargs
     try:
         if env_vars is not None:
             # Ensure we control the Alpaca keys — remove them first, then set what's provided
-            clean_env = {"ALPACA_API_KEY_PAPER": "", "ALPACA_SECRET_KEY_PAPER": ""}
+            clean_env = {"ALPACA_PAPER_API_KEY": "", "ALPACA_PAPER_SECRET_KEY": ""}
             clean_env.update(env_vars)
             with patch.dict("os.environ", clean_env):
                 return fn(**kwargs)
@@ -139,8 +139,8 @@ class TestGetAlpacaKeys:
         from finance_agent.mcp.research_server import _get_alpaca_keys
 
         with patch.dict("os.environ", {
-            "ALPACA_API_KEY_PAPER": "test-key",
-            "ALPACA_SECRET_KEY_PAPER": "test-secret",
+            "ALPACA_PAPER_API_KEY": "test-key",
+            "ALPACA_PAPER_SECRET_KEY": "test-secret",
         }):
             api_key, secret_key = _get_alpaca_keys()
             assert api_key == "test-key"
@@ -156,7 +156,7 @@ class TestGetAlpacaKeys:
     def test_raises_when_partial(self):
         from finance_agent.mcp.research_server import _get_alpaca_keys
 
-        with patch.dict("os.environ", {"ALPACA_API_KEY_PAPER": "key"}, clear=True):
+        with patch.dict("os.environ", {"ALPACA_PAPER_API_KEY": "key"}, clear=True):
             with pytest.raises(ValueError, match="Alpaca API keys not configured"):
                 _get_alpaca_keys()
 
@@ -186,7 +186,7 @@ class TestRunBacktest:
         conn, db_path = pattern_db
         result = _call_tool(
             run_backtest, db_path,
-            env_vars={"ALPACA_API_KEY_PAPER": "k", "ALPACA_SECRET_KEY_PAPER": "s"},
+            env_vars={"ALPACA_PAPER_API_KEY": "k", "ALPACA_PAPER_SECRET_KEY": "s"},
             pattern_id=99, tickers="ABBV",
         )
         assert result == {"error": "Pattern #99 not found."}
@@ -198,7 +198,7 @@ class TestRunBacktest:
         with patch("finance_agent.patterns.market_data.fetch_and_cache_bars", return_value=[]):
             result = _call_tool(
                 run_backtest, db_path,
-                env_vars={"ALPACA_API_KEY_PAPER": "k", "ALPACA_SECRET_KEY_PAPER": "s"},
+                env_vars={"ALPACA_PAPER_API_KEY": "k", "ALPACA_PAPER_SECRET_KEY": "s"},
                 pattern_id=1, tickers="ABBV",
             )
         assert result == {"error": "No price data available for any ticker."}
@@ -212,7 +212,7 @@ class TestRunBacktest:
         with patch("finance_agent.patterns.market_data.fetch_and_cache_bars", return_value=bars):
             result = _call_tool(
                 run_backtest, db_path,
-                env_vars={"ALPACA_API_KEY_PAPER": "k", "ALPACA_SECRET_KEY_PAPER": "s"},
+                env_vars={"ALPACA_PAPER_API_KEY": "k", "ALPACA_PAPER_SECRET_KEY": "s"},
                 pattern_id=1,  # no tickers → falls back to watchlist (ABBV)
             )
         # Should not be an error — watchlist has ABBV
@@ -228,7 +228,7 @@ class TestRunBacktest:
         with patch("finance_agent.patterns.market_data.fetch_and_cache_bars", return_value=bars):
             result = _call_tool(
                 run_backtest, db_path,
-                env_vars={"ALPACA_API_KEY_PAPER": "k", "ALPACA_SECRET_KEY_PAPER": "s"},
+                env_vars={"ALPACA_PAPER_API_KEY": "k", "ALPACA_PAPER_SECRET_KEY": "s"},
                 pattern_id=1, tickers="ABBV",
                 start_date="2024-01-01", end_date="2024-12-31",
             )
@@ -249,7 +249,7 @@ class TestRunBacktest:
         with patch("finance_agent.patterns.market_data.fetch_and_cache_bars", side_effect=mock_fetch):
             result = _call_tool(
                 run_backtest, db_path,
-                env_vars={"ALPACA_API_KEY_PAPER": "k", "ALPACA_SECRET_KEY_PAPER": "s"},
+                env_vars={"ALPACA_PAPER_API_KEY": "k", "ALPACA_PAPER_SECRET_KEY": "s"},
                 pattern_id=1, tickers="ABBV,MRNA",
                 start_date="2024-01-01", end_date="2024-12-31",
             )
@@ -266,7 +266,7 @@ class TestRunBacktest:
         with patch("finance_agent.patterns.market_data.fetch_and_cache_bars", return_value=bars):
             result = _call_tool(
                 run_backtest, db_path,
-                env_vars={"ALPACA_API_KEY_PAPER": "k", "ALPACA_SECRET_KEY_PAPER": "s"},
+                env_vars={"ALPACA_PAPER_API_KEY": "k", "ALPACA_PAPER_SECRET_KEY": "s"},
                 pattern_id=1, tickers="ABBV",
                 # No start_date or end_date → defaults to 1 year ago / today
             )
@@ -302,7 +302,7 @@ class TestRunBacktest:
 
         result = _call_tool(
             run_backtest, db_path,
-            env_vars={"ALPACA_API_KEY_PAPER": "k", "ALPACA_SECRET_KEY_PAPER": "s"},
+            env_vars={"ALPACA_PAPER_API_KEY": "k", "ALPACA_PAPER_SECRET_KEY": "s"},
             pattern_id=1,
         )
         assert result == {"error": "No tickers specified and watchlist is empty."}
@@ -322,7 +322,7 @@ class TestRunABTest:
         conn, db_path = pattern_db
         result = _call_tool(
             run_ab_test, db_path,
-            env_vars={"ALPACA_API_KEY_PAPER": "k", "ALPACA_SECRET_KEY_PAPER": "s"},
+            env_vars={"ALPACA_PAPER_API_KEY": "k", "ALPACA_PAPER_SECRET_KEY": "s"},
             pattern_ids="1", tickers="ABBV",
         )
         assert result == {"error": "A/B test requires at least 2 pattern IDs."}
@@ -333,7 +333,7 @@ class TestRunABTest:
         conn, db_path = pattern_db
         result = _call_tool(
             run_ab_test, db_path,
-            env_vars={"ALPACA_API_KEY_PAPER": "k", "ALPACA_SECRET_KEY_PAPER": "s"},
+            env_vars={"ALPACA_PAPER_API_KEY": "k", "ALPACA_PAPER_SECRET_KEY": "s"},
             pattern_ids="abc,def", tickers="ABBV",
         )
         assert "error" in result
@@ -345,7 +345,7 @@ class TestRunABTest:
         conn, db_path = pattern_db
         result = _call_tool(
             run_ab_test, db_path,
-            env_vars={"ALPACA_API_KEY_PAPER": "k", "ALPACA_SECRET_KEY_PAPER": "s"},
+            env_vars={"ALPACA_PAPER_API_KEY": "k", "ALPACA_PAPER_SECRET_KEY": "s"},
             pattern_ids="1,3", tickers="",
         )
         assert result == {"error": "--tickers is required for A/B testing."}
@@ -356,7 +356,7 @@ class TestRunABTest:
         conn, db_path = pattern_db
         result = _call_tool(
             run_ab_test, db_path,
-            env_vars={"ALPACA_API_KEY_PAPER": "k", "ALPACA_SECRET_KEY_PAPER": "s"},
+            env_vars={"ALPACA_PAPER_API_KEY": "k", "ALPACA_PAPER_SECRET_KEY": "s"},
             pattern_ids="1,99", tickers="ABBV",
         )
         assert result == {"error": "Pattern #99 not found."}
@@ -367,7 +367,7 @@ class TestRunABTest:
         conn, db_path = pattern_db
         result = _call_tool(
             run_ab_test, db_path,
-            env_vars={"ALPACA_API_KEY_PAPER": "k", "ALPACA_SECRET_KEY_PAPER": "s"},
+            env_vars={"ALPACA_PAPER_API_KEY": "k", "ALPACA_PAPER_SECRET_KEY": "s"},
             pattern_ids="1,2", tickers="ABBV",  # pattern 2 is draft
         )
         assert result == {"error": "Pattern #2 is in draft status. Confirm the pattern first."}
@@ -394,7 +394,7 @@ class TestRunABTest:
         with patch("finance_agent.patterns.market_data.fetch_and_cache_bars", side_effect=mock_fetch):
             result = _call_tool(
                 run_ab_test, db_path,
-                env_vars={"ALPACA_API_KEY_PAPER": "k", "ALPACA_SECRET_KEY_PAPER": "s"},
+                env_vars={"ALPACA_PAPER_API_KEY": "k", "ALPACA_PAPER_SECRET_KEY": "s"},
                 pattern_ids="1,3", tickers="ABBV",
                 start_date="2024-01-01", end_date="2024-12-31",
             )

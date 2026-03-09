@@ -18,7 +18,7 @@
 **Purpose**: Add read-write DB helper needed by backtest/A/B tools
 
 - [X] T001 Add `_get_readwrite_conn()` helper function to src/finance_agent/mcp/research_server.py alongside existing `_get_readonly_conn()` — same row_factory and busy_timeout but without `?mode=ro` flag
-- [X] T002 Add `_get_alpaca_keys()` helper to src/finance_agent/mcp/research_server.py that reads ALPACA_API_KEY_PAPER and ALPACA_SECRET_KEY_PAPER from environment, returns tuple or raises structured error dict
+- [X] T002 Add `_get_alpaca_keys()` helper to src/finance_agent/mcp/research_server.py that reads ALPACA_PAPER_API_KEY and ALPACA_PAPER_SECRET_KEY from environment, returns tuple or raises structured error dict
 
 ---
 

@@ -49,7 +49,7 @@ Run a multi-ticker backtest for a pattern, returning per-ticker breakdown and co
 ```json
 {"error": "Pattern #99 not found."}
 {"error": "No price data available for any ticker."}
-{"error": "Alpaca API keys not configured. Set ALPACA_API_KEY_PAPER and ALPACA_SECRET_KEY_PAPER."}
+{"error": "Alpaca API keys not configured. Set ALPACA_PAPER_API_KEY and ALPACA_PAPER_SECRET_KEY."}
 ```
 
 **Behavior**:

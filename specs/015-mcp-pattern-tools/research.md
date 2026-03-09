@@ -38,7 +38,7 @@ For the `AggregatedBacktestReport` and `ABTestResult` models, `.model_dump()` pr
 
 **Rationale**: The MCP server runs as a subprocess launched by Claude Desktop. Environment variables are the standard way to pass configuration to MCP servers (documented in the Claude Desktop MCP config). The existing server already uses `os.environ.get("DB_PATH", ...)`.
 
-For the backtest and A/B test tools, the Alpaca paper trading keys (`ALPACA_API_KEY_PAPER`, `ALPACA_SECRET_KEY_PAPER`) must be available. If missing, the tool should return `{"error": "Alpaca API keys not configured. Set ALPACA_API_KEY_PAPER and ALPACA_SECRET_KEY_PAPER."}` rather than raising an exception.
+For the backtest and A/B test tools, the Alpaca paper trading keys (`ALPACA_PAPER_API_KEY`, `ALPACA_PAPER_SECRET_KEY`) must be available. If missing, the tool should return `{"error": "Alpaca API keys not configured. Set ALPACA_PAPER_API_KEY and ALPACA_PAPER_SECRET_KEY."}` rather than raising an exception.
 
 The export tool does not need Alpaca keys (it reads from the database).
 

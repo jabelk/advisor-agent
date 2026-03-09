@@ -51,11 +51,11 @@ def _get_alpaca_keys() -> tuple[str, str]:
     Raises:
         dict: Error dict if keys are not configured.
     """
-    api_key = os.environ.get("ALPACA_API_KEY_PAPER", "")
-    secret_key = os.environ.get("ALPACA_SECRET_KEY_PAPER", "")
+    api_key = os.environ.get("ALPACA_PAPER_API_KEY", "")
+    secret_key = os.environ.get("ALPACA_PAPER_SECRET_KEY", "")
     if not api_key or not secret_key:
         raise ValueError(
-            "Alpaca API keys not configured. Set ALPACA_API_KEY_PAPER and ALPACA_SECRET_KEY_PAPER."
+            "Alpaca API keys not configured. Set ALPACA_PAPER_API_KEY and ALPACA_PAPER_SECRET_KEY."
         )
     return api_key, secret_key
 
