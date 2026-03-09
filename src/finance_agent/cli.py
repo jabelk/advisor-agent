@@ -214,12 +214,11 @@ def main(argv: list[str] | None = None) -> None:
     sb_commentary.add_argument("--stage", help="Target life stage")
 
     # Saved lists subcommand group
-    sb_lists = sandbox_sub.add_parser("lists", help="Manage saved client lists")
+    sb_lists = sandbox_sub.add_parser("lists", help="Manage Salesforce List Views")
     lists_sub = sb_lists.add_subparsers(dest="lists_command")
 
-    sb_lists_save = lists_sub.add_parser("save", help="Save a named client list")
-    sb_lists_save.add_argument("--name", required=True, help="List name")
-    sb_lists_save.add_argument("--desc", default="", help="List description")
+    sb_lists_save = lists_sub.add_parser("save", help="Save compound filters as a Salesforce List View")
+    sb_lists_save.add_argument("--name", required=True, help="List View name")
     sb_lists_save.add_argument("--risk", nargs="+", help="Risk tolerance(s)")
     sb_lists_save.add_argument("--stage", nargs="+", help="Life stage(s)")
     sb_lists_save.add_argument("--min-value", type=float, help="Minimum account value")
@@ -234,36 +233,41 @@ def main(argv: list[str] | None = None) -> None:
     sb_lists_save.add_argument("--sort-dir", choices=["asc", "desc"], default="desc")
     sb_lists_save.add_argument("--limit", type=int, default=50, help="Max results")
 
-    lists_sub.add_parser("show", help="Show all saved lists")
+    lists_sub.add_parser("show", help="Show all tool-created List Views")
 
-    sb_lists_run = lists_sub.add_parser("run", help="Run a saved list")
-    sb_lists_run.add_argument("name", help="List name to run")
+    sb_lists_delete = lists_sub.add_parser("delete", help="Delete a List View")
+    sb_lists_delete.add_argument("name", help="List View name to delete")
 
-    sb_lists_update = lists_sub.add_parser("update", help="Update a saved list")
-    sb_lists_update.add_argument("name", help="List name to update")
-    sb_lists_update.add_argument("--name", dest="new_name", help="New list name")
-    sb_lists_update.add_argument("--desc", help="New description")
-    sb_lists_update.add_argument("--risk", nargs="+", help="Risk tolerance(s)")
-    sb_lists_update.add_argument("--stage", nargs="+", help="Life stage(s)")
-    sb_lists_update.add_argument("--min-value", type=float, help="Minimum account value")
-    sb_lists_update.add_argument("--max-value", type=float, help="Maximum account value")
-    sb_lists_update.add_argument("--min-age", type=int, help="Minimum client age")
-    sb_lists_update.add_argument("--max-age", type=int, help="Maximum client age")
-    sb_lists_update.add_argument("--not-contacted-days", type=int, help="Not contacted in N days")
-    sb_lists_update.add_argument("--contacted-after", help="Contacted after date")
-    sb_lists_update.add_argument("--contacted-before", help="Contacted before date")
-    sb_lists_update.add_argument("--search", help="Search text")
-    sb_lists_update.add_argument("--sort-by", choices=["account_value", "age", "last_name", "last_interaction_date"])
-    sb_lists_update.add_argument("--sort-dir", choices=["asc", "desc"])
-    sb_lists_update.add_argument("--limit", type=int, help="Max results")
+    # Reports subcommand group (021-sfdc-native-lists)
+    sb_reports = sandbox_sub.add_parser("reports", help="Manage Salesforce Reports")
+    reports_sub = sb_reports.add_subparsers(dest="reports_command")
 
-    sb_lists_delete = lists_sub.add_parser("delete", help="Delete a saved list")
-    sb_lists_delete.add_argument("name", help="List name to delete")
+    sb_reports_save = reports_sub.add_parser("save", help="Save compound filters as a Salesforce Report")
+    sb_reports_save.add_argument("--name", required=True, help="Report name")
+    sb_reports_save.add_argument("--risk", nargs="+", help="Risk tolerance(s)")
+    sb_reports_save.add_argument("--stage", nargs="+", help="Life stage(s)")
+    sb_reports_save.add_argument("--min-value", type=float, help="Minimum account value")
+    sb_reports_save.add_argument("--max-value", type=float, help="Maximum account value")
+    sb_reports_save.add_argument("--min-age", type=int, help="Minimum client age")
+    sb_reports_save.add_argument("--max-age", type=int, help="Maximum client age")
+    sb_reports_save.add_argument("--not-contacted-days", type=int, help="Not contacted in N days")
+    sb_reports_save.add_argument("--contacted-after", help="Contacted after date (YYYY-MM-DD)")
+    sb_reports_save.add_argument("--contacted-before", help="Contacted before date (YYYY-MM-DD)")
+    sb_reports_save.add_argument("--search", help="Search text")
+    sb_reports_save.add_argument("--sort-by", choices=["account_value", "age", "last_name", "last_interaction_date"], default="account_value")
+    sb_reports_save.add_argument("--sort-dir", choices=["asc", "desc"], default="desc")
+    sb_reports_save.add_argument("--limit", type=int, default=50, help="Max results")
+
+    reports_sub.add_parser("show", help="Show all tool-created Reports")
+
+    sb_reports_delete = reports_sub.add_parser("delete", help="Delete a Report")
+    sb_reports_delete.add_argument("name", help="Report name to delete")
 
     # Natural language query
     sb_ask = sandbox_sub.add_parser("ask", help="Query clients in plain English")
     sb_ask.add_argument("query", help="Natural language query (e.g., 'top 50 clients under 50')")
     sb_ask.add_argument("--yes", action="store_true", help="Skip confirmation for low-confidence interpretations")
+    sb_ask.add_argument("--save-as", dest="save_as", help="Save NL-interpreted filters as a Salesforce List View")
 
     # MCP server command
     mcp_parser = subparsers.add_parser("mcp", help="Start the MCP research server")
@@ -2382,10 +2386,12 @@ def cmd_sandbox(args: argparse.Namespace) -> None:
         _sandbox_commentary(args)
     elif sub == "lists":
         _sandbox_lists(args)
+    elif sub == "reports":
+        _sandbox_reports(args)
     elif sub == "ask":
         _sandbox_ask(args)
     else:
-        print("Usage: finance-agent sandbox {setup|seed|list|view|add|edit|brief|commentary|lists|ask}")
+        print("Usage: finance-agent sandbox {setup|seed|list|view|add|edit|brief|commentary|lists|reports|ask}")
         sys.exit(1)
 
 
@@ -2716,96 +2722,125 @@ def _sandbox_ask(args: argparse.Namespace) -> None:
 
     print(f"\nShowing {result['count']} clients matching filters")
 
+    # --save-as: create a Salesforce List View from the interpreted filters
+    save_as = getattr(args, "save_as", None)
+    if save_as and result.get("executed") and clients:
+        from finance_agent.sandbox.models import CompoundFilter
+        from finance_agent.sandbox.sfdc_listview import create_listview
+
+        raw_filters = result.get("filters_raw") or result.get("interpretation", {}).get("filters", {})
+        cf = CompoundFilter(**{k: v for k, v in raw_filters.items() if v is not None})
+        try:
+            lv = create_listview(sf, save_as, cf)
+            print(f"\nList View created: {lv['name']}")
+            print(f"Filters: {lv['filters_applied']}")
+            if lv["warnings"]:
+                print("Warnings:")
+                for w in lv["warnings"]:
+                    print(f"  - {w}")
+            print(f"URL: {lv['url']}")
+        except Exception as e:
+            print(f"\nError creating List View: {e}")
+
+
+def _sandbox_reports(args: argparse.Namespace) -> None:
+    from finance_agent.sandbox.sfdc_report import (
+        create_report,
+        delete_report,
+        list_reports,
+    )
+
+    sub = getattr(args, "reports_command", None)
+
+    if sub == "save":
+        sf = _get_sf()
+        filters = _build_compound_filter(args)
+        try:
+            result = create_report(sf, args.name, filters)
+            print(f"\nReport created: {result['name']}")
+            print(f"Folder: {result['folder']}")
+            print(f"Filters: {result['filters_applied']}")
+            if result["warnings"]:
+                print("Warnings:")
+                for w in result["warnings"]:
+                    print(f"  - {w}")
+            print(f"URL: {result['url']}")
+        except Exception as e:
+            print(f"Error creating Report: {e}")
+            sys.exit(1)
+
+    elif sub == "show":
+        sf = _get_sf()
+        reports = list_reports(sf)
+        if not reports:
+            print("No tool-created Reports found.")
+            return
+        print(f"\n{'Name':<35} {'Folder':<15} {'URL'}")
+        print("-" * 120)
+        for r in reports:
+            print(f"{r['name']:<35} {'Client Lists':<15} {r['url']}")
+        print(f"\n{len(reports)} Report(s).")
+
+    elif sub == "delete":
+        sf = _get_sf()
+        deleted = delete_report(sf, args.name)
+        if deleted:
+            print(f"Deleted Report '{args.name}'.")
+        else:
+            print(f"Report '{args.name}' not found.")
+
+    else:
+        print("Usage: finance-agent sandbox reports {save|show|delete}")
+        sys.exit(1)
+
 
 def _sandbox_lists(args: argparse.Namespace) -> None:
-    from finance_agent.sandbox.list_builder import (
-        delete_saved_list,
-        get_saved_lists,
-        run_saved_list,
-        save_list,
-        update_saved_list,
+    from finance_agent.sandbox.sfdc_listview import (
+        create_listview,
+        delete_listview,
+        list_listviews,
     )
-    from finance_agent.sandbox.models import CompoundFilter
 
     sub = getattr(args, "lists_command", None)
 
     if sub == "save":
+        sf = _get_sf()
         filters = _build_compound_filter(args)
         try:
-            saved = save_list(args.name, args.desc, filters)
-            print(f"Saved list '{saved.name}' with filters: {saved.filters.describe()}")
-        except ValueError as e:
-            print(f"Error: {e}")
+            result = create_listview(sf, args.name, filters)
+            print(f"\nList View created: {result['name']}")
+            print(f"Filters: {result['filters_applied']}")
+            if result["warnings"]:
+                print("Warnings:")
+                for w in result["warnings"]:
+                    print(f"  - {w}")
+            print(f"URL: {result['url']}")
+        except Exception as e:
+            print(f"Error creating List View: {e}")
             sys.exit(1)
 
     elif sub == "show":
-        lists = get_saved_lists()
-        if not lists:
-            print("No saved lists.")
-            return
-        print(f"\n{'Name':<30} {'Description':<30} {'Filters':<40} {'Last Run':<20}")
-        print("-" * 124)
-        for sl in lists:
-            last_run = sl.last_run_at[:19] if sl.last_run_at else "—"
-            desc = (sl.description or "")[:28]
-            filt = sl.filters.describe()[:38]
-            print(f"{sl.name:<30} {desc:<30} {filt:<40} {last_run:<20}")
-        print(f"\n{len(lists)} saved list(s).")
-
-    elif sub == "run":
         sf = _get_sf()
-        try:
-            result = run_saved_list(sf, args.name)
-        except ValueError as e:
-            print(f"Error: {e}")
-            sys.exit(1)
-        clients = result["clients"]
-        if not clients:
-            print(f"No clients match filters for '{args.name}'.")
-            print(f"Filters applied: {result['filters_applied']}")
+        views = list_listviews(sf)
+        if not views:
+            print("No tool-created List Views found.")
             return
-        print(f"\n{'ID':<20} {'Name':<25} {'Age':>4} {'Account Value':>14} {'Risk':<14} {'Life Stage':<16} {'Last Contact':<12}")
-        print("-" * 111)
-        for c in clients:
-            cid = c["id"][:15] + "..."
-            name = f"{c['first_name']} {c['last_name']}"[:23]
-            age_str = str(c.get("age") or "—")
-            value = f"${c['account_value']:,.0f}"
-            print(f"{cid:<20} {name:<25} {age_str:>4} {value:>14} {c['risk_tolerance']:<14} {c['life_stage']:<16} {c.get('last_interaction_date') or '—':<12}")
-        print(f"\nFilters applied: {result['filters_applied']}")
-        print(f"Showing {result['count']} clients")
-
-    elif sub == "update":
-        updates: dict = {}
-        if args.new_name:
-            updates["name"] = args.new_name
-        if args.desc is not None:
-            updates["description"] = args.desc
-        # Check if any filter flags were provided
-        has_filters = any(
-            getattr(args, a, None) is not None
-            for a in ["risk", "stage", "min_value", "max_value", "min_age", "max_age",
-                       "not_contacted_days", "contacted_after", "contacted_before", "search",
-                       "sort_by", "sort_dir", "limit"]
-        )
-        if has_filters:
-            updates["filters"] = _build_compound_filter(args)
-        try:
-            updated = update_saved_list(args.name, updates)
-            print(f"Updated list '{updated.name}'.")
-        except ValueError as e:
-            print(f"Error: {e}")
-            sys.exit(1)
+        print(f"\n{'Name':<35} {'URL'}")
+        print("-" * 100)
+        for v in views:
+            print(f"{v['name']:<35} {v['url']}")
+        print(f"\n{len(views)} List View(s).")
 
     elif sub == "delete":
-        deleted = delete_saved_list(args.name)
+        sf = _get_sf()
+        deleted = delete_listview(sf, args.name)
         if deleted:
-            print(f"Deleted list '{args.name}'.")
+            print(f"Deleted List View '{args.name}'.")
         else:
-            print(f"List '{args.name}' not found.")
+            print(f"List View '{args.name}' not found.")
 
     else:
-        print("Usage: finance-agent sandbox lists {save|show|run|update|delete}")
+        print("Usage: finance-agent sandbox lists {save|show|delete}")
         sys.exit(1)
 
 

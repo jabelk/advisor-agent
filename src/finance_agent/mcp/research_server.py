@@ -1389,9 +1389,8 @@ def sandbox_query_clients(
 
 
 @mcp.tool()
-def sandbox_save_list(
+def sandbox_save_listview(
     name: str,
-    description: str = "",
     min_age: int = 0,
     max_age: int = 0,
     min_value: float = 0,
@@ -1406,13 +1405,13 @@ def sandbox_save_list(
     sort_dir: str = "desc",
     limit: int = 50,
 ) -> dict[str, Any]:
-    """Save a named client list with filter criteria.
+    """Save a named Salesforce ListView with filter criteria.
 
-    Creates a reusable list that can be run later to get fresh Salesforce results.
+    Creates or updates a ListView on the Contact object in Salesforce.
+    Returns a direct URL to open the ListView in Salesforce Lightning.
 
     Args:
-        name: Unique name for the list.
-        description: Human-readable description of the list purpose.
+        name: Unique name for the list view.
         min_age: Minimum client age (0 = no filter).
         max_age: Maximum client age (0 = no filter).
         min_value: Minimum account value (0 = no filter).
@@ -1427,8 +1426,8 @@ def sandbox_save_list(
         sort_dir: Sort direction.
         limit: Maximum results.
     """
-    from finance_agent.sandbox.list_builder import save_list
     from finance_agent.sandbox.models import CompoundFilter
+    from finance_agent.sandbox.sfdc_listview import create_listview
 
     risk_list = [r.strip() for r in risk_tolerances.split(",") if r.strip()] if risk_tolerances else None
     stage_list = [s.strip() for s in life_stages.split(",") if s.strip()] if life_stages else None
@@ -1448,69 +1447,127 @@ def sandbox_save_list(
         sort_dir=sort_dir,
         limit=limit,
     )
-    try:
-        saved = save_list(name, description, filters)
-        return {"saved": saved.model_dump(), "filters_summary": filters.describe()}
-    except ValueError as e:
-        return {"error": str(e)}
+    sf = _get_sf_client()
+    return create_listview(sf, name, filters)
 
 
 @mcp.tool()
-def sandbox_show_lists() -> dict[str, Any]:
-    """List all saved client lists.
+def sandbox_show_listviews() -> dict[str, Any]:
+    """List all tool-created Salesforce ListViews.
 
-    Returns names, descriptions, filter summaries, and last run dates
-    for all saved lists.
+    Returns names, developer names, and direct Salesforce URLs
+    for all ListViews created by this tool (AA_ prefix).
     """
-    from finance_agent.sandbox.list_builder import get_saved_lists
-
-    lists = get_saved_lists()
-    return {
-        "lists": [
-            {
-                "name": sl.name,
-                "description": sl.description,
-                "filters_summary": sl.filters.describe(),
-                "last_run_at": sl.last_run_at,
-            }
-            for sl in lists
-        ],
-        "total": len(lists),
-    }
-
-
-@mcp.tool()
-def sandbox_run_list(name: str) -> dict[str, Any]:
-    """Run a saved client list by name.
-
-    Executes the saved list's filters against Salesforce and returns
-    fresh results. Updates the list's last_run_at timestamp.
-
-    Args:
-        name: Name of the saved list to run.
-    """
-    from finance_agent.sandbox.list_builder import run_saved_list
+    from finance_agent.sandbox.sfdc_listview import list_listviews
 
     sf = _get_sf_client()
-    try:
-        return run_saved_list(sf, name)
-    except ValueError as e:
-        return {"error": str(e)}
+    views = list_listviews(sf)
+    return {"views": views, "total": len(views)}
 
 
 @mcp.tool()
-def sandbox_delete_list(name: str) -> dict[str, Any]:
-    """Delete a saved client list.
+def sandbox_delete_listview(name: str) -> dict[str, Any]:
+    """Delete a tool-created Salesforce ListView.
 
     Args:
-        name: Name of the saved list to delete.
+        name: Name of the list view to delete (without AA: prefix).
     """
-    from finance_agent.sandbox.list_builder import delete_saved_list
+    from finance_agent.sandbox.sfdc_listview import delete_listview
 
-    deleted = delete_saved_list(name)
-    if deleted:
-        return {"deleted": True, "name": name}
-    return {"deleted": False, "error": f"List '{name}' not found"}
+    sf = _get_sf_client()
+    deleted = delete_listview(sf, name)
+    return {"deleted": deleted, "name": name}
+
+
+@mcp.tool()
+def sandbox_save_report(
+    name: str,
+    min_age: int = 0,
+    max_age: int = 0,
+    min_value: float = 0,
+    max_value: float = 0,
+    risk_tolerances: str = "",
+    life_stages: str = "",
+    not_contacted_days: int = 0,
+    contacted_after: str = "",
+    contacted_before: str = "",
+    search: str = "",
+    sort_by: str = "account_value",
+    sort_dir: str = "desc",
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Save a named Salesforce Report with filter criteria.
+
+    Creates or updates a Report on the Contact object in Salesforce.
+    Returns a direct URL to open the Report in Salesforce Lightning.
+
+    Args:
+        name: Unique name for the report.
+        min_age: Minimum client age (0 = no filter).
+        max_age: Maximum client age (0 = no filter).
+        min_value: Minimum account value (0 = no filter).
+        max_value: Maximum account value (0 = no filter).
+        risk_tolerances: Comma-separated risk tolerances.
+        life_stages: Comma-separated life stages.
+        not_contacted_days: Not contacted in N days (0 = no filter).
+        contacted_after: Last contact on or after date (YYYY-MM-DD).
+        contacted_before: Last contact on or before date (YYYY-MM-DD).
+        search: Free-text search.
+        sort_by: Sort field.
+        sort_dir: Sort direction.
+        limit: Maximum results.
+    """
+    from finance_agent.sandbox.models import CompoundFilter
+    from finance_agent.sandbox.sfdc_report import create_report
+
+    risk_list = [r.strip() for r in risk_tolerances.split(",") if r.strip()] if risk_tolerances else None
+    stage_list = [s.strip() for s in life_stages.split(",") if s.strip()] if life_stages else None
+
+    filters = CompoundFilter(
+        min_age=min_age if min_age > 0 else None,
+        max_age=max_age if max_age > 0 else None,
+        min_value=min_value if min_value > 0 else None,
+        max_value=max_value if max_value > 0 else None,
+        risk_tolerances=risk_list,
+        life_stages=stage_list,
+        not_contacted_days=not_contacted_days if not_contacted_days > 0 else None,
+        contacted_after=contacted_after or None,
+        contacted_before=contacted_before or None,
+        search=search or None,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        limit=limit,
+    )
+    sf = _get_sf_client()
+    return create_report(sf, name, filters)
+
+
+@mcp.tool()
+def sandbox_show_reports() -> dict[str, Any]:
+    """List all tool-created Salesforce Reports.
+
+    Returns names, URLs, descriptions, and last run dates
+    for all Reports created by this tool ([advisor-agent] tag).
+    """
+    from finance_agent.sandbox.sfdc_report import list_reports
+
+    sf = _get_sf_client()
+    reports = list_reports(sf)
+    return {"reports": reports, "total": len(reports)}
+
+
+@mcp.tool()
+def sandbox_delete_report(name: str) -> dict[str, Any]:
+    """Delete a tool-created Salesforce Report.
+
+    Args:
+        name: Name of the report to delete (without AA: prefix).
+    """
+    from finance_agent.sandbox.sfdc_report import delete_report
+
+    sf = _get_sf_client()
+    deleted = delete_report(sf, name)
+    return {"deleted": deleted, "name": name}
 
 
 @mcp.tool()
