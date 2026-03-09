@@ -57,7 +57,7 @@ This is the key step — it gives Claude the ability to look up clients, verify 
 7. Now find the text `PASTE_YOUR_TOKEN_HERE` in what you just pasted. Delete **only those words** and type (or paste) the token that was sent to you. Make sure:
    - The word `Bearer` and the space after it are still there
    - Your token is between the quote marks
-   - It should look like: `"Authorization: Bearer -ElQh--swrLQJuVqpYEoWYzKx8NxeaH"`
+   - It should look like: `"Authorization: Bearer your-token-goes-here"` (one long string, no spaces in the token itself)
 8. Save the file (Cmd+S on Mac, Ctrl+S on Windows)
 9. **Quit Claude Desktop completely** and reopen it (just closing the window isn't enough — on Mac, right-click the dock icon and click Quit)
 
