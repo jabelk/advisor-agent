@@ -15,12 +15,12 @@ from finance_agent.sandbox.models import CompoundFilter
 
 DEFAULT_LISTVIEW_COLUMNS = [
     "FULL_NAME",
-    "CONTACT_EMAIL",
-    "CONTACT_PHONE",
-    "Contact.Age__c",
-    "Contact.Account_Value__c",
-    "Contact.Risk_Tolerance__c",
-    "Contact.Life_Stage__c",
+    "CONTACT.EMAIL",
+    "CONTACT.PHONE1",
+    "Age__c",
+    "Account_Value__c",
+    "Risk_Tolerance__c",
+    "Life_Stage__c",
 ]
 
 
@@ -186,11 +186,11 @@ def create_listview(sf: Salesforce, name: str, filters: CompoundFilter) -> dict:
 
     if existing.get("records"):
         # Update existing
-        sf.mdapi.ListView.update(full_name, metadata)
+        sf.mdapi.ListView.update([sf.mdapi.ListView(**metadata)])
         lv_id = existing["records"][0]["Id"]
     else:
         # Create new
-        sf.mdapi.ListView.create(metadata)
+        sf.mdapi.ListView.create([sf.mdapi.ListView(**metadata)])
         # Query back to get the ID
         created = sf.query(
             f"SELECT Id FROM ListView "
@@ -264,7 +264,7 @@ def delete_listview(sf: Salesforce, name: str) -> bool:
     for rec in result.get("records", []):
         if rec["DeveloperName"].lower() == dev_name.lower():
             actual_full_name = f"Contact.{rec['DeveloperName']}"
-            sf.mdapi.ListView.delete(actual_full_name)
+            sf.mdapi.ListView.delete([actual_full_name])
             return True
 
     return False

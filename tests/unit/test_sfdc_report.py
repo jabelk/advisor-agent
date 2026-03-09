@@ -139,23 +139,21 @@ class TestEnsureReportFolder:
         folder_id = ensure_report_folder(mock_sf)
 
         assert folder_id == "00lxx000001AAAA"
-        mock_sf.restful.assert_not_called()
+        mock_sf.Folder.create.assert_not_called()
 
     def test_creates_new_folder(self, mock_sf):
         mock_sf.query.return_value = {"records": []}
-        mock_sf.restful.return_value = {"id": "00lxx000001BBBB"}
+        mock_sf.Folder.create.return_value = {"id": "00lxx000001BBBB"}
 
         folder_id = ensure_report_folder(mock_sf)
 
         assert folder_id == "00lxx000001BBBB"
-        mock_sf.restful.assert_called_once_with(
-            "analytics/report-folders",
-            method="POST",
-            json={
-                "name": "Client Lists",
-                "description": "[advisor-agent] Auto-created folder",
-            },
-        )
+        mock_sf.Folder.create.assert_called_once_with({
+            "Name": "Client Lists",
+            "DeveloperName": "Client_Lists",
+            "Type": "Report",
+            "AccessType": "Public",
+        })
 
     def test_caches_folder_id(self, mock_sf):
         mock_sf.query.return_value = {

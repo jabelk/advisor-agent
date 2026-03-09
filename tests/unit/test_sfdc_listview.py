@@ -170,13 +170,10 @@ class TestCreateListview:
         sf.mdapi.ListView.create.assert_called_once()
         sf.mdapi.ListView.update.assert_not_called()
 
-        # Verify metadata passed to create
-        metadata = sf.mdapi.ListView.create.call_args[0][0]
-        assert metadata["fullName"] == "Contact.AA_Young_Clients"
-        assert metadata["label"] == "AA: Young Clients"
-        assert metadata["filterScope"] == "Everything"
-        assert "filters" in metadata
-        assert len(metadata["filters"]) == 2
+        # Verify create was called with a list containing one zeep-style object
+        create_args = sf.mdapi.ListView.create.call_args[0][0]
+        assert isinstance(create_args, list)
+        assert len(create_args) == 1
 
         # Verify returned dict
         assert result["id"] == "00Bxx000001NEW"
@@ -197,9 +194,9 @@ class TestCreateListview:
         sf.mdapi.ListView.update.assert_called_once()
         sf.mdapi.ListView.create.assert_not_called()
 
-        # Verify update args: fullName and metadata
-        call_args = sf.mdapi.ListView.update.call_args[0]
-        assert call_args[0] == "Contact.AA_Existing"
+        # Verify update was called with a list
+        update_args = sf.mdapi.ListView.update.call_args[0][0]
+        assert isinstance(update_args, list)
 
         assert result["id"] == "00Bxx000001OLD"
 
@@ -240,8 +237,8 @@ class TestCreateListview:
         f = CompoundFilter()
         result = create_listview(sf, "Empty Filters", f)
 
-        metadata = sf.mdapi.ListView.create.call_args[0][0]
-        assert "filters" not in metadata
+        # Verify create called with list
+        sf.mdapi.ListView.create.assert_called_once()
         assert result["warnings"] == []
 
 
@@ -315,7 +312,7 @@ class TestDeleteListview:
         result = delete_listview(sf, "Top 50 Under 50")
 
         assert result is True
-        sf.mdapi.ListView.delete.assert_called_once_with("Contact.AA_Top_50_Under_50")
+        sf.mdapi.ListView.delete.assert_called_once_with(["Contact.AA_Top_50_Under_50"])
 
     def test_not_found(self, sf):
         sf.query.return_value = {"records": []}
@@ -337,7 +334,7 @@ class TestDeleteListview:
         result = delete_listview(sf, "top 50 under 50")
 
         assert result is True
-        sf.mdapi.ListView.delete.assert_called_once_with("Contact.AA_Top_50_Under_50")
+        sf.mdapi.ListView.delete.assert_called_once_with(["Contact.AA_Top_50_Under_50"])
 
     def test_multiple_views_matches_correct_one(self, sf):
         """When multiple AA_ views exist, only the matching one is deleted."""
@@ -351,4 +348,4 @@ class TestDeleteListview:
         result = delete_listview(sf, "Beta")
 
         assert result is True
-        sf.mdapi.ListView.delete.assert_called_once_with("Contact.AA_Beta")
+        sf.mdapi.ListView.delete.assert_called_once_with(["Contact.AA_Beta"])

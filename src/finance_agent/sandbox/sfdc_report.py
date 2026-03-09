@@ -160,15 +160,13 @@ def ensure_report_folder(sf: Salesforce) -> str:
         _folder_id_cache = result["records"][0]["Id"]
         return _folder_id_cache
 
-    # Create the folder via Analytics REST API
-    resp = sf.restful(
-        "analytics/report-folders",
-        method="POST",
-        json={
-            "name": "Client Lists",
-            "description": "[advisor-agent] Auto-created folder",
-        },
-    )
+    # Create the folder via Folder sObject
+    resp = sf.Folder.create({
+        "Name": "Client Lists",
+        "DeveloperName": "Client_Lists",
+        "Type": "Report",
+        "AccessType": "Public",
+    })
     _folder_id_cache = resp["id"]
     return _folder_id_cache
 
