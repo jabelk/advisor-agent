@@ -182,6 +182,11 @@ class CoveredCallCycle(BaseModel):
     total_return_pct: float | None = None
     capped_upside_pct: float | None = None
     historical_volatility: float | None = None
+    option_symbol: str | None = None
+    pricing: str | None = Field(
+        default=None,
+        description="'real' if using historical option data, 'estimated' if Black-Scholes",
+    )
 
 
 class CoveredCallReport(BaseModel):

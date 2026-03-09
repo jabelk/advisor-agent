@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 import math
+import sqlite3
 from datetime import datetime, timedelta
+from typing import Any
 
 from finance_agent.patterns.models import (
     AggregatedBacktestReport,
@@ -22,6 +24,22 @@ from finance_agent.patterns.models import (
 
 logger = logging.getLogger(__name__)
 
+
+def _get_alpaca_keys_optional() -> tuple[str | None, str | None]:
+    """Read Alpaca paper trading keys from environment.
+
+    Returns (api_key, secret_key) or (None, None) if not set.
+    Used to determine if real option pricing is available without erroring.
+    """
+    import os
+
+    api_key = os.environ.get("ALPACA_PAPER_API_KEY") or None
+    secret_key = os.environ.get("ALPACA_PAPER_SECRET_KEY") or None
+    if api_key and secret_key:
+        return api_key, secret_key
+    return None, None
+
+
 # Minimum trades for statistical significance
 MIN_SAMPLE_SIZE = 30
 
@@ -38,6 +56,7 @@ def run_backtest(
     bars_by_ticker: dict[str, list[dict]],
     start_date: str,
     end_date: str,
+    conn: sqlite3.Connection | None = None,
 ) -> BacktestReport:
     """Run a backtest of the given rule set against historical price data.
 
@@ -47,6 +66,7 @@ def run_backtest(
         bars_by_ticker: Historical bars keyed by ticker symbol
         start_date: Backtest start date (YYYY-MM-DD)
         end_date: Backtest end date (YYYY-MM-DD)
+        conn: Optional DB connection for real option pricing cache
 
     Returns:
         BacktestReport with performance metrics and regime analysis
@@ -62,7 +82,7 @@ def run_backtest(
             # For now, rely on the caller to filter tickers by sector
             pass
 
-        trades = _simulate_pattern(ticker, rule_set, bars)
+        trades = _simulate_pattern(ticker, rule_set, bars, conn=conn)
         all_trades.extend(trades)
 
     # Sort trades by trigger date
@@ -105,6 +125,7 @@ def run_covered_call_backtest(
     start_date: str,
     end_date: str,
     shares: int = 100,
+    conn: sqlite3.Connection | None = None,
 ) -> CoveredCallReport:
     """Run a covered call backtest: simulate monthly sell-call cycles over historical data.
 
@@ -179,17 +200,30 @@ def run_covered_call_backtest(
         # Calculate strike price
         call_strike = stock_entry_price * (1 + strike_pct_otm)
 
-        # Estimate premium
-        call_premium_per_share = estimate_call_premium(
-            spot_price=stock_entry_price,
-            strike_price=call_strike,
-            days_to_expiration=expiration_days,
-            historical_volatility=hist_vol,
-        )
-
         # Calculate expiration date
         exp_date = datetime.strptime(cycle_start_date, "%Y-%m-%d") + timedelta(days=expiration_days)
         call_expiration_date = exp_date.strftime("%Y-%m-%d")
+
+        # Try real option pricing for the sold call
+        cycle_pricing = "estimated"
+        cycle_option_symbol = None
+        real_contract = _try_real_option_pricing_for_cc(
+            conn, ticker, stock_entry_price, call_strike,
+            cycle_start_date, call_expiration_date, expiration_days,
+        )
+
+        if real_contract and real_contract["pricing"] == "real":
+            call_premium_per_share = real_contract["entry_premium"]
+            cycle_pricing = "real"
+            cycle_option_symbol = real_contract["option_symbol"]
+        else:
+            # Fall back to Black-Scholes estimate
+            call_premium_per_share = estimate_call_premium(
+                spot_price=stock_entry_price,
+                strike_price=call_strike,
+                days_to_expiration=expiration_days,
+                historical_volatility=hist_vol,
+            )
 
         # Simulate through the cycle
         outcome = None
@@ -252,8 +286,26 @@ def run_covered_call_backtest(
 
         cycle_end_date = filtered_bars[cycle_end_idx]["bar_timestamp"][:10]
 
+        # For real pricing, try to get exit premium from historical bars
+        if cycle_pricing == "real" and real_contract:
+            exit_premium = real_contract.get("exit_premium")
+            if exit_premium is not None and exit_premium > 0:
+                # Use real exit premium for return calculation
+                call_premium_per_share_effective = call_premium_per_share - exit_premium
+                if outcome in ("closed_early", "rolled"):
+                    # Net premium = entry - exit (bought back)
+                    call_premium_per_share_effective = call_premium_per_share - exit_premium
+                elif outcome == "expired_worthless":
+                    call_premium_per_share_effective = call_premium_per_share
+                elif outcome == "assigned":
+                    call_premium_per_share_effective = call_premium_per_share
+            else:
+                call_premium_per_share_effective = call_premium_per_share
+        else:
+            call_premium_per_share_effective = call_premium_per_share
+
         # Calculate returns
-        premium_return_pct = (call_premium_per_share / stock_entry_price) * 100.0
+        premium_return_pct = (call_premium_per_share_effective / stock_entry_price) * 100.0
 
         # Stock gain/loss
         stock_return = stock_price_at_exit - stock_entry_price
@@ -261,7 +313,7 @@ def run_covered_call_backtest(
             # Cap stock gain at strike
             stock_return = min(stock_return, call_strike - stock_entry_price)
 
-        total_return_per_share = call_premium_per_share + stock_return
+        total_return_per_share = call_premium_per_share_effective + stock_return
         total_return_pct = (total_return_per_share / stock_entry_price) * 100.0
 
         # Capped upside: gains forfeited due to assignment
@@ -285,6 +337,8 @@ def run_covered_call_backtest(
             total_return_pct=round(total_return_pct, 4),
             capped_upside_pct=round(capped_upside_pct, 4),
             historical_volatility=round(hist_vol, 4),
+            option_symbol=cycle_option_symbol,
+            pricing=cycle_pricing,
         ))
 
         # Advance to next cycle start (day after cycle end)
@@ -398,6 +452,7 @@ def _simulate_pattern(
     ticker: str,
     rule_set: RuleSet,
     bars: list[dict],
+    conn: sqlite3.Connection | None = None,
 ) -> list[BacktestTrade]:
     """Simulate a pattern against a single ticker's price history."""
     trades: list[BacktestTrade] = []
@@ -412,7 +467,7 @@ def _simulate_pattern(
             entry_idx = _find_entry(rule_set, bars, i)
             if entry_idx is not None and entry_idx < len(bars):
                 # Simulate the trade
-                trade = _execute_simulated_trade(ticker, rule_set, bars, entry_idx)
+                trade = _execute_simulated_trade(ticker, rule_set, bars, entry_idx, conn=conn)
                 if trade:
                     trades.append(trade)
                     # Skip ahead past this trade
@@ -511,8 +566,14 @@ def _execute_simulated_trade(
     rule_set: RuleSet,
     bars: list[dict],
     entry_idx: int,
+    conn: sqlite3.Connection | None = None,
 ) -> BacktestTrade | None:
-    """Simulate a trade from entry to exit."""
+    """Simulate a trade from entry to exit.
+
+    When a DB connection is provided and Alpaca keys are available,
+    attempts to use real historical option premiums for options trades.
+    Falls back to synthetic leverage estimation otherwise.
+    """
     entry_bar = bars[entry_idx]
     entry_price = entry_bar["close"]
 
@@ -552,18 +613,49 @@ def _execute_simulated_trade(
     # Calculate return
     raw_return_pct = ((exit_price - entry_price) / entry_price) * 100
 
-    # For options, apply leverage approximation
+    # For options, attempt real pricing then fall back to synthetic
     is_options = "call" in action.action_type.value or "put" in action.action_type.value
     if is_options:
-        return_pct = _estimate_options_return(
-            raw_return_pct, action.action_type.value, action.expiration_days
-        )
         option_details = {
             "type": action.action_type.value,
             "strike_strategy": action.strike_strategy.value,
             "expiration_days": action.expiration_days,
             "underlying_return_pct": raw_return_pct,
         }
+
+        # Try real option pricing
+        real_pricing = _try_real_option_pricing(
+            conn, ticker, entry_price,
+            entry_bar["bar_timestamp"][:10],
+            bars[exit_idx]["bar_timestamp"][:10],
+            action,
+        )
+
+        if real_pricing and real_pricing["pricing"] == "real":
+            # Use real premiums to calculate return
+            entry_premium = real_pricing["entry_premium"]
+            exit_premium = real_pricing["exit_premium"]
+            if "sell" in action.action_type.value:
+                # Selling options: profit when premium decreases
+                return_pct = ((entry_premium - exit_premium) / entry_premium) * 100
+            else:
+                # Buying options: profit when premium increases
+                return_pct = ((exit_premium - entry_premium) / entry_premium) * 100
+            option_details["option_symbol"] = real_pricing["option_symbol"]
+            option_details["pricing"] = "real"
+            option_details["entry_premium"] = entry_premium
+            option_details["exit_premium"] = exit_premium
+            option_details["volume_at_entry"] = real_pricing["volume_at_entry"]
+            option_details["strike"] = real_pricing["strike"]
+            option_details["expiration"] = real_pricing["expiration"]
+        else:
+            # Fall back to synthetic leverage estimation
+            return_pct = _estimate_options_return(
+                raw_return_pct, action.action_type.value, action.expiration_days
+            )
+            option_details["pricing"] = "estimated"
+            if real_pricing:
+                option_details["option_symbol"] = real_pricing.get("option_symbol")
     else:
         return_pct = raw_return_pct
         option_details = None
@@ -579,6 +671,131 @@ def _execute_simulated_trade(
         action_type=action.action_type.value,
         option_details=option_details,
     )
+
+
+def _try_real_option_pricing(
+    conn: sqlite3.Connection | None,
+    ticker: str,
+    underlying_price: float,
+    entry_date_str: str,
+    exit_date_str: str,
+    action: Any,
+) -> dict | None:
+    """Attempt to get real option pricing. Returns None if unavailable."""
+    if conn is None:
+        return None
+
+    api_key, secret_key = _get_alpaca_keys_optional()
+    if not api_key or not secret_key:
+        return None
+
+    try:
+        from datetime import date as date_type
+
+        from finance_agent.patterns.option_data import select_option_contract
+
+        entry_date = date_type.fromisoformat(entry_date_str)
+        exit_date = date_type.fromisoformat(exit_date_str)
+
+        # Map strike_strategy enum value
+        strike_strategy = action.strike_strategy.value if action.strike_strategy else "atm"
+        custom_offset = None
+        if strike_strategy == "custom":
+            custom_offset = getattr(action, "custom_strike_offset_pct", None)
+
+        # Determine option type from action type
+        option_type = "call" if "call" in action.action_type.value else "put"
+
+        return select_option_contract(
+            conn=conn,
+            underlying_ticker=ticker,
+            underlying_price=underlying_price,
+            entry_date=entry_date,
+            exit_date=exit_date,
+            strike_strategy=strike_strategy,
+            custom_strike_offset_pct=custom_offset,
+            expiration_days=action.expiration_days or 30,
+            option_type=option_type,
+            api_key=api_key,
+            secret_key=secret_key,
+        )
+    except Exception as e:
+        logger.debug("Real option pricing failed for %s: %s", ticker, e)
+        return None
+
+
+def _try_real_option_pricing_for_cc(
+    conn: sqlite3.Connection | None,
+    ticker: str,
+    underlying_price: float,
+    call_strike: float,
+    cycle_start_date: str,
+    call_expiration_date: str,
+    expiration_days: int,
+) -> dict | None:
+    """Attempt real option pricing for a covered call cycle."""
+    if conn is None:
+        return None
+
+    api_key, secret_key = _get_alpaca_keys_optional()
+    if not api_key or not secret_key:
+        return None
+
+    try:
+        from datetime import date as date_type
+
+        from finance_agent.patterns.option_data import (
+            build_occ_symbol,
+            fetch_and_cache_option_bars,
+            find_nearest_expiration,
+            _find_nearest_bar,
+            _strike_increment,
+        )
+
+        entry_date = date_type.fromisoformat(cycle_start_date)
+        exit_date = date_type.fromisoformat(call_expiration_date)
+        expiration = find_nearest_expiration(exit_date, prefer_monthly=True)
+
+        symbol = build_occ_symbol(ticker, expiration, call_strike, "call")
+        fetch_start = (entry_date - timedelta(days=5)).isoformat()
+        fetch_end = (exit_date + timedelta(days=5)).isoformat()
+
+        bars = fetch_and_cache_option_bars(conn, symbol, fetch_start, fetch_end, api_key, secret_key)
+
+        # Try ±1 strike increment if no data
+        if not bars:
+            increment = _strike_increment(underlying_price)
+            for offset in (increment, -increment):
+                alt_strike = round(call_strike + offset, 2)
+                alt_symbol = build_occ_symbol(ticker, expiration, alt_strike, "call")
+                bars = fetch_and_cache_option_bars(
+                    conn, alt_symbol, fetch_start, fetch_end, api_key, secret_key
+                )
+                if bars:
+                    symbol = alt_symbol
+                    break
+
+        if not bars:
+            return None
+
+        entry_bar = _find_nearest_bar(bars, cycle_start_date)
+        exit_bar = _find_nearest_bar(bars, call_expiration_date)
+
+        entry_premium = entry_bar["close"] if entry_bar else None
+        exit_premium = exit_bar["close"] if exit_bar else None
+
+        if entry_premium is None:
+            return None
+
+        return {
+            "option_symbol": symbol,
+            "entry_premium": entry_premium,
+            "exit_premium": exit_premium,
+            "pricing": "real",
+        }
+    except Exception as e:
+        logger.debug("Real CC option pricing failed for %s: %s", ticker, e)
+        return None
 
 
 def _estimate_options_return(
@@ -740,6 +957,7 @@ def run_news_dip_backtest(
     start_date: str,
     end_date: str,
     event_config: EventDetectionConfig,
+    conn: sqlite3.Connection | None = None,
 ) -> tuple[BacktestReport, list[dict]]:
     """Run a news-dip backtest: detect spike events then look for pullback entries.
 
@@ -785,7 +1003,7 @@ def run_news_dip_backtest(
         entry_idx = _find_entry(rule_set, bars, trigger_idx)
 
         if entry_idx is not None:
-            trade = _execute_simulated_trade(ticker, rule_set, bars, entry_idx)
+            trade = _execute_simulated_trade(ticker, rule_set, bars, entry_idx, conn=conn)
             if trade:
                 trades.append(trade)
         else:
@@ -842,6 +1060,7 @@ def run_multi_ticker_news_dip_backtest(
     start_date: str,
     end_date: str,
     event_config: EventDetectionConfig,
+    conn: sqlite3.Connection | None = None,
 ) -> AggregatedBacktestReport:
     """Run news-dip backtest across multiple tickers and aggregate results.
 
@@ -891,6 +1110,7 @@ def run_multi_ticker_news_dip_backtest(
             start_date=start_date,
             end_date=end_date,
             event_config=event_config,
+            conn=conn,
         )
 
         # Build per-ticker breakdown from the single-ticker report
