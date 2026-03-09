@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +18,37 @@ from fastmcp import FastMCP
 
 DB_PATH = os.environ.get("DB_PATH", "data/finance_agent.db")
 RESEARCH_DATA_DIR = Path(os.environ.get("RESEARCH_DATA_DIR", "research_data"))
+PORT = int(os.environ.get("PORT", "8000"))
+_SERVER_START_TIME = time.monotonic()
 
-mcp = FastMCP("Finance Agent Research DB")
+# Configure auth if MCP_API_TOKEN is set (required for Railway deployment)
+_mcp_token = os.environ.get("MCP_API_TOKEN")
+_auth = None
+if _mcp_token:
+    from fastmcp.server.auth import StaticTokenVerifier
+
+    _auth = StaticTokenVerifier(tokens={_mcp_token: {"client_id": "advisor-agent", "scopes": []}})
+
+mcp = FastMCP("Finance Agent Research DB", auth=_auth)
+
+
+def _init_db() -> None:
+    """Create DB with schema if it doesn't exist. Called from __main__ only."""
+    if Path(DB_PATH).exists():
+        return
+    from finance_agent.db import get_connection, run_migrations
+
+    for candidate in [
+        Path(__file__).resolve().parent.parent.parent.parent / "migrations",
+        Path("/app/migrations"),
+    ]:
+        if candidate.exists():
+            conn = get_connection(DB_PATH)
+            try:
+                run_migrations(conn, str(candidate))
+            finally:
+                conn.close()
+            return
 
 
 def _get_readonly_conn() -> sqlite3.Connection:
@@ -337,9 +367,7 @@ def read_document(document_id: int) -> dict[str, Any]:
         else:
             result["content"] = None
             result["truncated"] = False
-            result["truncated_message"] = (
-                "Content file not found on disk. Metadata available only."
-            )
+            result["truncated_message"] = "Content file not found on disk. Metadata available only."
 
         return result
     finally:
@@ -537,7 +565,9 @@ def run_backtest(
             start_date = (date.today() - timedelta(days=365)).isoformat()
 
         # Parse tickers — fall back to watchlist
-        ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()] if tickers else []
+        ticker_list = (
+            [t.strip().upper() for t in tickers.split(",") if t.strip()] if tickers else []
+        )
         if not ticker_list:
             from finance_agent.data.watchlist import list_companies
 
@@ -552,7 +582,13 @@ def run_backtest(
         all_bars: dict[str, list[dict]] = {}
         for ticker in ticker_list:
             bars = fetch_and_cache_bars(
-                conn, ticker, start_date, end_date, "day", api_key, secret_key,
+                conn,
+                ticker,
+                start_date,
+                end_date,
+                "day",
+                api_key,
+                secret_key,
             )
             if bars:
                 all_bars[ticker] = bars
@@ -611,7 +647,9 @@ def run_backtest(
                             events_detected=report.trigger_count,
                             trades_entered=report.trade_count,
                             win_count=report.win_count,
-                            win_rate=report.win_count / report.trade_count if report.trade_count else 0.0,
+                            win_rate=report.win_count / report.trade_count
+                            if report.trade_count
+                            else 0.0,
                             avg_return_pct=report.avg_return_pct,
                             total_return_pct=report.total_return_pct,
                         )
@@ -686,7 +724,9 @@ def run_ab_test(
     try:
         id_list = [int(x.strip()) for x in pattern_ids.split(",") if x.strip()]
     except ValueError:
-        return {"error": "Invalid pattern_ids format. Use comma-separated integers (e.g., '1,2,3')."}
+        return {
+            "error": "Invalid pattern_ids format. Use comma-separated integers (e.g., '1,2,3')."
+        }
 
     if len(id_list) < 2:
         return {"error": "A/B test requires at least 2 pattern IDs."}
@@ -740,7 +780,13 @@ def run_ab_test(
         all_bars: dict[str, list[dict]] = {}
         for ticker in ticker_list:
             bars = fetch_and_cache_bars(
-                conn, ticker, start_date, end_date, "day", api_key, secret_key,
+                conn,
+                ticker,
+                start_date,
+                end_date,
+                "day",
+                api_key,
+                secret_key,
             )
             if bars:
                 all_bars[ticker] = bars
@@ -807,7 +853,9 @@ def export_backtest(
                 (pattern_id,),
             ).fetchone()
             if not bt_row:
-                return {"error": f"No backtest results found for pattern #{pattern_id}. Run a backtest first."}
+                return {
+                    "error": f"No backtest results found for pattern #{pattern_id}. Run a backtest first."
+                }
 
         backtest = dict(bt_row)
         actual_backtest_id = backtest["id"]
@@ -824,7 +872,9 @@ def export_backtest(
 
         # Write file
         file_path = generate_export_path(
-            pattern_id, "backtest", output_dir if output_dir else None,
+            pattern_id,
+            "backtest",
+            output_dir if output_dir else None,
         )
         Path(file_path).parent.mkdir(parents=True, exist_ok=True)
         Path(file_path).write_text(md_content, encoding="utf-8")
@@ -930,18 +980,24 @@ def get_option_chain_history(
             from finance_agent.patterns.market_data import fetch_and_cache_bars
 
             stock_bars = fetch_and_cache_bars(
-                conn, ticker,
+                conn,
+                ticker,
                 (target_date - timedelta(days=10)).isoformat(),
                 (target_date + timedelta(days=5)).isoformat(),
-                "day", api_key, secret_key,
+                "day",
+                api_key,
+                secret_key,
             )
             if not stock_bars:
                 return {"error": f"No stock price data for {ticker} around {date}."}
 
             # Find closest bar to target date
-            closest_bar = min(stock_bars, key=lambda b: abs(
-                (date_type.fromisoformat(b["bar_timestamp"][:10]) - target_date).days
-            ))
+            closest_bar = min(
+                stock_bars,
+                key=lambda b: abs(
+                    (date_type.fromisoformat(b["bar_timestamp"][:10]) - target_date).days
+                ),
+            )
             stock_price = closest_bar["close"]
 
             if strike_min is None:
@@ -969,23 +1025,33 @@ def get_option_chain_history(
             fetch_end = (target_date + timedelta(days=5)).isoformat()
 
             bars = fetch_and_cache_option_bars(
-                conn, symbol, fetch_start, fetch_end, api_key, secret_key,
+                conn,
+                symbol,
+                fetch_start,
+                fetch_end,
+                api_key,
+                secret_key,
             )
 
             if bars:
                 # Find bar closest to target date
-                best_bar = min(bars, key=lambda b: abs(
-                    (date_type.fromisoformat(b["bar_timestamp"][:10]) - target_date).days
-                ))
-                contracts.append({
-                    "symbol": symbol,
-                    "strike": strike,
-                    "expiration": expiration.isoformat(),
-                    "type": option_type,
-                    "close_price": best_bar["close"],
-                    "volume": best_bar["volume"],
-                    "pricing": "real",
-                })
+                best_bar = min(
+                    bars,
+                    key=lambda b: abs(
+                        (date_type.fromisoformat(b["bar_timestamp"][:10]) - target_date).days
+                    ),
+                )
+                contracts.append(
+                    {
+                        "symbol": symbol,
+                        "strike": strike,
+                        "expiration": expiration.isoformat(),
+                        "type": option_type,
+                        "close_price": best_bar["close"],
+                        "volume": best_bar["volume"],
+                        "pricing": "real",
+                    }
+                )
 
             strike = round(strike + increment, 2)
 
@@ -1056,6 +1122,7 @@ def get_performance_comparison(pattern_id: int = 0) -> dict[str, Any]:
 def _get_sf_client():
     """Get authenticated Salesforce client for sandbox tools."""
     from finance_agent.sandbox.sfdc import get_sf_client
+
     return get_sf_client()
 
 
@@ -1125,7 +1192,9 @@ def sandbox_list_clients(
     from finance_agent.sandbox.storage import list_clients
 
     sf = _get_sf_client()
-    risk_list = [r.strip() for r in risk_tolerances.split(",") if r.strip()] if risk_tolerances else None
+    risk_list = (
+        [r.strip() for r in risk_tolerances.split(",") if r.strip()] if risk_tolerances else None
+    )
     stage_list = [s.strip() for s in life_stages.split(",") if s.strip()] if life_stages else None
 
     clients = list_clients(
@@ -1351,7 +1420,9 @@ def sandbox_query_clients(
     from finance_agent.sandbox.storage import format_query_results, list_clients
 
     sf = _get_sf_client()
-    risk_list = [r.strip() for r in risk_tolerances.split(",") if r.strip()] if risk_tolerances else None
+    risk_list = (
+        [r.strip() for r in risk_tolerances.split(",") if r.strip()] if risk_tolerances else None
+    )
     stage_list = [s.strip() for s in life_stages.split(",") if s.strip()] if life_stages else None
 
     filters = CompoundFilter(
@@ -1429,7 +1500,9 @@ def sandbox_save_listview(
     from finance_agent.sandbox.models import CompoundFilter
     from finance_agent.sandbox.sfdc_listview import create_listview
 
-    risk_list = [r.strip() for r in risk_tolerances.split(",") if r.strip()] if risk_tolerances else None
+    risk_list = (
+        [r.strip() for r in risk_tolerances.split(",") if r.strip()] if risk_tolerances else None
+    )
     stage_list = [s.strip() for s in life_stages.split(",") if s.strip()] if life_stages else None
 
     filters = CompoundFilter(
@@ -1520,7 +1593,9 @@ def sandbox_save_report(
     from finance_agent.sandbox.models import CompoundFilter
     from finance_agent.sandbox.sfdc_report import create_report
 
-    risk_list = [r.strip() for r in risk_tolerances.split(",") if r.strip()] if risk_tolerances else None
+    risk_list = (
+        [r.strip() for r in risk_tolerances.split(",") if r.strip()] if risk_tolerances else None
+    )
     stage_list = [s.strip() for s in life_stages.split(",") if s.strip()] if life_stages else None
 
     filters = CompoundFilter(
@@ -1594,7 +1669,9 @@ def sandbox_ask_clients(query: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def sandbox_create_task(client_name: str, subject: str, due_date: str = "", priority: str = "Normal") -> dict[str, Any]:
+def sandbox_create_task(
+    client_name: str, subject: str, due_date: str = "", priority: str = "Normal"
+) -> dict[str, Any]:
     """Create a follow-up task for a Salesforce Contact.
 
     Creates a task linked to the matched contact with [advisor-agent] tag.
@@ -1608,13 +1685,17 @@ def sandbox_create_task(client_name: str, subject: str, due_date: str = "", prio
         return {"error": f"No contacts found matching '{client_name}'"}
     if len(contacts) > 1:
         return {"error": f"Multiple contacts match '{client_name}'", "matches": contacts}
-    result = create_task(sf, contacts[0]["id"], subject, due_date=due_date or None, priority=priority)
+    result = create_task(
+        sf, contacts[0]["id"], subject, due_date=due_date or None, priority=priority
+    )
     result["client_name"] = contacts[0]["name"]
     return result
 
 
 @mcp.tool()
-def sandbox_show_tasks(client_name: str = "", overdue_only: bool = False, include_summary: bool = False) -> dict[str, Any]:
+def sandbox_show_tasks(
+    client_name: str = "", overdue_only: bool = False, include_summary: bool = False
+) -> dict[str, Any]:
     """List open follow-up tasks from Salesforce.
 
     Shows tasks created by advisor-agent. Filter by client name or overdue status.
@@ -1651,7 +1732,9 @@ def sandbox_complete_task(subject: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def sandbox_log_activity(client_name: str, subject: str, activity_type: str, activity_date: str = "") -> dict[str, Any]:
+def sandbox_log_activity(
+    client_name: str, subject: str, activity_type: str, activity_date: str = ""
+) -> dict[str, Any]:
     """Log a completed activity (call, meeting, email, other) for a client.
 
     Creates a completed Salesforce Task with the appropriate TaskSubtype.
@@ -1667,7 +1750,9 @@ def sandbox_log_activity(client_name: str, subject: str, activity_type: str, act
     if len(contacts) > 1:
         return {"error": f"Multiple contacts match '{client_name}'", "matches": contacts}
     try:
-        result = log_activity(sf, contacts[0]["id"], subject, activity_type, activity_date=activity_date or None)
+        result = log_activity(
+            sf, contacts[0]["id"], subject, activity_type, activity_date=activity_date or None
+        )
     except ValueError as e:
         return {"error": str(e)}
     result["client_name"] = contacts[0]["name"]
@@ -1675,7 +1760,9 @@ def sandbox_log_activity(client_name: str, subject: str, activity_type: str, act
 
 
 @mcp.tool()
-def sandbox_outreach_queue(days: int, min_value: float = 0, create_tasks: bool = False) -> dict[str, Any]:
+def sandbox_outreach_queue(
+    days: int, min_value: float = 0, create_tasks: bool = False
+) -> dict[str, Any]:
     """Generate a prioritized outreach list of clients not contacted recently.
 
     Finds contacts with no activity in the specified number of days, sorted
@@ -1694,12 +1781,93 @@ def sandbox_outreach_queue(days: int, min_value: float = 0, create_tasks: bool =
     return result
 
 
+# --- Health check endpoint (Railway deployment) ---
+
+
+@mcp.custom_route("/health", methods=["GET"])
+async def health_check(request):  # noqa: ARG001
+    """Health check endpoint for Railway restart policy and monitoring."""
+    from starlette.responses import JSONResponse
+
+    uptime = time.monotonic() - _SERVER_START_TIME
+
+    # Check integrations (env var presence only — no live connections)
+    integrations: dict[str, dict[str, Any]] = {}
+
+    required_checks = {
+        "salesforce": "SFDC_CONSUMER_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "alpaca": "ALPACA_PAPER_API_KEY",
+    }
+    optional_checks = {
+        "finnhub": "FINNHUB_API_KEY",
+        "earningscall": "EARNINGSCALL_API_KEY",
+    }
+
+    any_required_missing = False
+    any_optional_missing = False
+
+    for name, env_var in required_checks.items():
+        configured = bool(os.environ.get(env_var))
+        if not configured:
+            any_required_missing = True
+        integrations[name] = {
+            "required": True,
+            "configured": configured,
+            "connected": configured,
+            "error": f"{env_var} not set" if not configured else None,
+        }
+
+    for name, env_var in optional_checks.items():
+        configured = bool(os.environ.get(env_var))
+        if not configured:
+            any_optional_missing = True
+        integrations[name] = {
+            "required": False,
+            "configured": configured,
+            "connected": configured,
+            "error": None,
+        }
+
+    # Storage checks
+    db_path = Path(DB_PATH)
+    db_exists = db_path.exists()
+    db_size_mb = round(db_path.stat().st_size / (1024 * 1024), 1) if db_exists else 0.0
+    research_dir_exists = RESEARCH_DATA_DIR.is_dir()
+
+    storage = {
+        "db_exists": db_exists,
+        "db_size_mb": db_size_mb,
+        "research_dir_exists": research_dir_exists,
+    }
+
+    # Determine status
+    if any_required_missing:
+        status = "unhealthy"
+    elif any_optional_missing:
+        status = "degraded"
+    else:
+        status = "healthy"
+
+    body = {
+        "status": status,
+        "uptime_seconds": round(uptime),
+        "integrations": integrations,
+        "storage": storage,
+    }
+
+    status_code = 503 if status == "unhealthy" else 200
+    return JSONResponse(body, status_code=status_code)
+
+
 # --- Entry point ---
 
 if __name__ == "__main__":
     import sys
 
+    _init_db()
+
     if "--http" in sys.argv:
-        mcp.run(transport="http", host="0.0.0.0", port=8000)
+        mcp.run(transport="http", host="0.0.0.0", port=PORT)
     else:
         mcp.run()

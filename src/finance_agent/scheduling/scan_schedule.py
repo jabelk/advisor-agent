@@ -69,7 +69,8 @@ def is_market_open(now: datetime | None = None) -> bool:
 
 
 def install_scan_schedule(
-    interval_minutes: int, cooldown_hours: int = 24,
+    interval_minutes: int,
+    cooldown_hours: int = 24,
 ) -> dict:
     """Install a launchd plist (macOS) or crontab entry (Linux) for recurring scans.
 
@@ -137,7 +138,8 @@ def _install_launchd(interval_minutes: int, cooldown_hours: int) -> dict:
     # Load the plist
     result = subprocess.run(
         ["launchctl", "load", str(PLIST_PATH)],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
 
     if result.returncode != 0:
@@ -156,20 +158,29 @@ def _install_launchd(interval_minutes: int, cooldown_hours: int) -> dict:
 def _install_cron(interval_minutes: int, cooldown_hours: int) -> dict:
     """Add a crontab entry on Linux."""
     executable = shutil.which("finance-agent") or f"{sys.executable} -m finance_agent.cli"
-    cron_line = f"*/{interval_minutes} * * * 1-5 {executable} pattern scan --cooldown {cooldown_hours}"
+    cron_line = (
+        f"*/{interval_minutes} * * * 1-5 {executable} pattern scan --cooldown {cooldown_hours}"
+    )
 
     # Get existing crontab
     result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
     existing = result.stdout if result.returncode == 0 else ""
 
     # Remove any existing advisor-agent scanner line
-    lines = [l for l in existing.strip().split("\n") if l and "advisor-agent" not in l and "pattern scan" not in l]
+    lines = [
+        l
+        for l in existing.strip().split("\n")
+        if l and "advisor-agent" not in l and "pattern scan" not in l
+    ]
     lines.append(f"{cron_line}  # advisor-agent scanner")
 
     # Install updated crontab
     new_crontab = "\n".join(lines) + "\n"
     proc = subprocess.run(
-        ["crontab", "-"], input=new_crontab, capture_output=True, text=True,
+        ["crontab", "-"],
+        input=new_crontab,
+        capture_output=True,
+        text=True,
     )
 
     if proc.returncode != 0:
@@ -206,7 +217,8 @@ def _get_launchd_schedule() -> dict | None:
     # Check if job is loaded
     result = subprocess.run(
         ["launchctl", "list", PLIST_LABEL],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     active = result.returncode == 0
 
@@ -252,7 +264,8 @@ def pause_scan_schedule() -> bool:
             return False
         result = subprocess.run(
             ["launchctl", "unload", str(PLIST_PATH)],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         return result.returncode == 0
     return False
@@ -269,7 +282,8 @@ def resume_scan_schedule() -> bool:
             return False
         result = subprocess.run(
             ["launchctl", "load", str(PLIST_PATH)],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         return result.returncode == 0
     return False
@@ -295,8 +309,11 @@ def remove_scan_schedule() -> bool:
         result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
         if result.returncode != 0:
             return False
-        lines = [l for l in result.stdout.strip().split("\n")
-                 if l and "advisor-agent" not in l and "pattern scan" not in l]
+        lines = [
+            l
+            for l in result.stdout.strip().split("\n")
+            if l and "advisor-agent" not in l and "pattern scan" not in l
+        ]
         new_crontab = "\n".join(lines) + "\n" if lines else ""
         subprocess.run(["crontab", "-"], input=new_crontab, capture_output=True, text=True)
         return True

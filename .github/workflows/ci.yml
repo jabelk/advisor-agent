@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # -----------------------------------------------------------------------
+  # Change detection — skip jobs when only docs/specs changed
+  # -----------------------------------------------------------------------
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'src/**'
+              - 'tests/**'
+              - 'Dockerfile'
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'railway.toml'
+              - 'docker-entrypoint.sh'
+
+  # -----------------------------------------------------------------------
+  # Lint & format — Ruff check + format
+  # -----------------------------------------------------------------------
+  lint-format:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv run ruff check src/
+      - run: uv run ruff format --check src/
+
+  # -----------------------------------------------------------------------
+  # Test — pytest
+  # -----------------------------------------------------------------------
+  test:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv run pytest tests/ -x
+
+  # -----------------------------------------------------------------------
+  # Security scan — Trivy filesystem scan
+  # -----------------------------------------------------------------------
+  security-scan:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+
+  # -----------------------------------------------------------------------
+  # Gate — single status check for branch protection
+  # -----------------------------------------------------------------------
+  gate:
+    if: always()
+    needs: [changes, lint-format, test, security-scan]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check job results
+        run: |
+          echo "changes: ${{ needs.changes.result }}"
+          echo "lint-format: ${{ needs.lint-format.result }}"
+          echo "test: ${{ needs.test.result }}"
+          echo "security-scan: ${{ needs.security-scan.result }}"
+
+          # If no app changes, all conditional jobs are skipped — that's OK
+          if [[ "${{ needs.changes.outputs.app }}" != "true" ]]; then
+            echo "No app changes — all checks skipped (OK)"
+            exit 0
+          fi
+
+          # If any required job failed, fail the gate
+          if [[ "${{ needs.lint-format.result }}" == "failure" || \
+                "${{ needs.test.result }}" == "failure" || \
+                "${{ needs.security-scan.result }}" == "failure" ]]; then
+            echo "Required job(s) failed"
+            exit 1
+          fi
+
+          echo "All checks passed"
+
+  # -----------------------------------------------------------------------
+  # Deploy to Railway — main branch only, after gate passes
+  # -----------------------------------------------------------------------
+  deploy-railway:
+    needs: [gate]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-railway
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Railway CLI
+        run: npm i -g @railway/cli
+      - name: Deploy to Railway
+        run: railway up --detach
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      - name: Health check
+        run: |
+          echo "Waiting 30s for deploy to stabilize..."
+          sleep 30
+          for i in 1 2 3; do
+            if curl -sf "$RAILWAY_HEALTH_URL"; then
+              echo ""
+              echo "Health check passed on attempt $i"
+              exit 0
+            fi
+            echo "Attempt $i failed, retrying in 15s..."
+            sleep 15
+          done
+          echo "Health check failed after 3 attempts"
+          exit 1
+        env:
+          RAILWAY_HEALTH_URL: ${{ vars.RAILWAY_HEALTH_URL }}

@@ -43,7 +43,11 @@ class CompoundFilter(BaseModel):
             raise ValueError("min_value must be >= 0")
         if self.max_value is not None and self.max_value < 0:
             raise ValueError("max_value must be >= 0")
-        if self.min_value is not None and self.max_value is not None and self.min_value > self.max_value:
+        if (
+            self.min_value is not None
+            and self.max_value is not None
+            and self.min_value > self.max_value
+        ):
             raise ValueError("min_value must be <= max_value")
         if self.not_contacted_days is not None and self.not_contacted_days <= 0:
             raise ValueError("not_contacted_days must be > 0")
@@ -53,7 +57,9 @@ class CompoundFilter(BaseModel):
         if self.not_contacted_days is not None and (
             self.contacted_after is not None or self.contacted_before is not None
         ):
-            raise ValueError("not_contacted_days is mutually exclusive with contacted_after/contacted_before")
+            raise ValueError(
+                "not_contacted_days is mutually exclusive with contacted_after/contacted_before"
+            )
         if self.risk_tolerances:
             for v in self.risk_tolerances:
                 if v not in VALID_RISK_TOLERANCES:

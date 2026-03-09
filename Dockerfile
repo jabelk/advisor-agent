@@ -1,34 +1,19 @@
-# Finance Agent: Multi-stage Docker build with uv
-# Based on research.md decision 5: Astral-recommended pattern
+# Advisor Agent: Single-stage Docker build with uv
 
-# --- Builder stage ---
-FROM python:3.12-slim AS builder
-
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-
-ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy
-
-WORKDIR /app
-
-# Phase 1: Install dependencies (cached layer)
-COPY pyproject.toml uv.lock ./
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev
-
-# Phase 2: Install project
-COPY . .
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
-
-# --- Runtime stage ---
 FROM python:3.12-slim
 
 WORKDIR /app
 
-# Copy the virtual environment from builder
-COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /app/migrations /app/migrations
+# Install uv
+RUN pip install --no-cache-dir uv
+
+# Phase 1: Install dependencies (cached layer)
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project --no-dev
+
+# Phase 2: Install project
+COPY . .
+RUN uv sync --frozen --no-dev
 
 # Put venv on PATH
 ENV PATH="/app/.venv/bin:$PATH"
@@ -40,5 +25,7 @@ RUN mkdir -p /app/data /app/research_data
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
+EXPOSE 8000
+
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["finance-agent", "health"]
+CMD ["python", "-m", "finance_agent.mcp.research_server", "--http"]

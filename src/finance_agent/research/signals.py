@@ -90,9 +90,7 @@ def query_signals(
     return [dict(row) for row in rows]
 
 
-def get_signal_counts(
-    conn: sqlite3.Connection, company_id: int
-) -> dict[str, int]:
+def get_signal_counts(conn: sqlite3.Connection, company_id: int) -> dict[str, int]:
     """Get signal counts by type for a company."""
     rows = conn.execute(
         "SELECT signal_type, COUNT(*) as count FROM research_signal "
@@ -102,9 +100,7 @@ def get_signal_counts(
     return {row["signal_type"]: row["count"] for row in rows}
 
 
-def aggregate_by_source(
-    conn: sqlite3.Connection, company_id: int
-) -> dict[str, int]:
+def aggregate_by_source(conn: sqlite3.Connection, company_id: int) -> dict[str, int]:
     """Get signal counts grouped by source type for a company."""
     rows = conn.execute(
         "SELECT sd.source_type, COUNT(*) as count FROM research_signal rs "
@@ -140,9 +136,7 @@ def compare_periods(
     return {"period1": p1_counts, "period2": p2_counts}
 
 
-def compute_overall_sentiment(
-    conn: sqlite3.Connection, company_id: int
-) -> str:
+def compute_overall_sentiment(conn: sqlite3.Connection, company_id: int) -> str:
     """Compute overall sentiment from recent sentiment signals."""
     signals = query_signals(conn, company_id=company_id, signal_type="sentiment")
     if not signals:
@@ -164,9 +158,7 @@ def compute_overall_sentiment(
     return "neutral"
 
 
-def check_document_exists(
-    conn: sqlite3.Connection, source_type: str, source_id: str
-) -> bool:
+def check_document_exists(conn: sqlite3.Connection, source_type: str, source_id: str) -> bool:
     """Check if a document has already been ingested."""
     row = conn.execute(
         "SELECT 1 FROM source_document WHERE source_type = ? AND source_id = ?",

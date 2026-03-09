@@ -16,7 +16,10 @@ from finance_agent.patterns.models import (
 
 
 def fisher_exact_test(
-    wins_a: int, losses_a: int, wins_b: int, losses_b: int,
+    wins_a: int,
+    losses_a: int,
+    wins_b: int,
+    losses_b: int,
 ) -> float:
     """Compare win rates using Fisher's exact test.
 
@@ -162,14 +165,16 @@ def run_ab_test(
             returns_b = [t.return_pct for t in b_report.trades]
             ar_p = welch_ttest(returns_a, returns_b)
 
-            comparisons.append(PairwiseComparison(
-                variant_a_id=a.pattern_id,
-                variant_b_id=b.pattern_id,
-                win_rate_p_value=wr_p,
-                win_rate_significant=wr_p < 0.05,
-                avg_return_p_value=ar_p,
-                avg_return_significant=ar_p < 0.05,
-            ))
+            comparisons.append(
+                PairwiseComparison(
+                    variant_a_id=a.pattern_id,
+                    variant_b_id=b.pattern_id,
+                    win_rate_p_value=wr_p,
+                    win_rate_significant=wr_p < 0.05,
+                    avg_return_p_value=ar_p,
+                    avg_return_significant=ar_p < 0.05,
+                )
+            )
 
     # Determine best variant by win rate, tie-break by avg return
     best_idx = 0

@@ -184,16 +184,17 @@ def fetch_and_cache_option_bars(
         return cached
 
     # Fetch from Alpaca
-    bars = _fetch_option_bars_from_alpaca(
-        option_symbol, start_date, end_date, api_key, secret_key
-    )
+    bars = _fetch_option_bars_from_alpaca(option_symbol, start_date, end_date, api_key, secret_key)
 
     # Cache results
     if bars:
         _cache_option_bars(conn, bars)
         logger.info(
             "Cached %d option bars for %s (%s to %s)",
-            len(bars), option_symbol, start_date, end_date,
+            len(bars),
+            option_symbol,
+            start_date,
+            end_date,
         )
 
     return bars
@@ -224,7 +225,7 @@ def _extract_underlying_ticker(option_symbol: str) -> str:
     """
     # Walk backwards from position 6+ to find where letters end and digits begin
     for i in range(len(option_symbol) - 15, 0, -1):
-        if option_symbol[i:i + 6].isdigit():
+        if option_symbol[i : i + 6].isdigit():
             return option_symbol[:i]
     return option_symbol[:4]  # fallback
 
@@ -268,18 +269,20 @@ def _fetch_option_bars_from_alpaca(
     bars: list[dict] = []
     if option_symbol in bars_response.data:
         for bar in bars_response.data[option_symbol]:
-            bars.append({
-                "option_symbol": option_symbol,
-                "underlying_ticker": underlying,
-                "timeframe": "day",
-                "bar_timestamp": bar.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "open": float(bar.open),
-                "high": float(bar.high),
-                "low": float(bar.low),
-                "close": float(bar.close),
-                "volume": int(bar.volume),
-                "trade_count": int(bar.trade_count) if bar.trade_count else None,
-            })
+            bars.append(
+                {
+                    "option_symbol": option_symbol,
+                    "underlying_ticker": underlying,
+                    "timeframe": "day",
+                    "bar_timestamp": bar.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "open": float(bar.open),
+                    "high": float(bar.high),
+                    "low": float(bar.low),
+                    "close": float(bar.close),
+                    "volume": int(bar.volume),
+                    "trade_count": int(bar.trade_count) if bar.trade_count else None,
+                }
+            )
 
     return bars
 
@@ -393,9 +396,7 @@ def _find_nearest_bar(bars: list[dict], target_date: str) -> dict | None:
     best_diff = float("inf")
     for bar in bars:
         bar_date = bar["bar_timestamp"][:10]
-        diff = abs(
-            (datetime.fromisoformat(bar_date) - datetime.fromisoformat(target)).days
-        )
+        diff = abs((datetime.fromisoformat(bar_date) - datetime.fromisoformat(target)).days)
         if diff < best_diff:
             best_diff = diff
             best = bar

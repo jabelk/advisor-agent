@@ -67,9 +67,7 @@ class FinnhubMarketSource(BaseSource):
                         logger.debug("No data for %s/%s", ticker, endpoint_name)
                         continue
 
-                    content = self._format_endpoint_data(
-                        endpoint_name, data, ticker, today
-                    )
+                    content = self._format_endpoint_data(endpoint_name, data, ticker, today)
 
                     # Persist raw JSON
                     raw_json = json.dumps(data, indent=2, default=str)
@@ -99,16 +97,12 @@ class FinnhubMarketSource(BaseSource):
                     logger.info("Ingested %s for %s", endpoint_name, ticker)
 
                 except Exception as e:
-                    logger.warning(
-                        "Failed %s for %s: %s", endpoint_name, ticker, e
-                    )
+                    logger.warning("Failed %s for %s: %s", endpoint_name, ticker, e)
                     continue
 
         return documents
 
-    def _fetch_endpoint(
-        self, client: Any, endpoint: str, ticker: str, today: str
-    ) -> Any:
+    def _fetch_endpoint(self, client: Any, endpoint: str, ticker: str, today: str) -> Any:
         """Fetch data from a specific Finnhub endpoint."""
         if endpoint == "recommendation_trends":
             return client.recommendation_trends(ticker)
@@ -128,9 +122,7 @@ class FinnhubMarketSource(BaseSource):
         return None
 
     @staticmethod
-    def _format_endpoint_data(
-        endpoint: str, data: Any, ticker: str, date: str
-    ) -> str:
+    def _format_endpoint_data(endpoint: str, data: Any, ticker: str, date: str) -> str:
         """Format endpoint data into readable markdown."""
         if endpoint == "recommendation_trends":
             return _format_analyst_ratings(data, ticker, date)
@@ -180,10 +172,7 @@ def _format_analyst_ratings(data: list[dict[str, Any]], ticker: str, date: str) 
     # Summary of latest
     if data:
         latest = data[0]
-        total = sum(
-            latest.get(k, 0)
-            for k in ["strongBuy", "buy", "hold", "sell", "strongSell"]
-        )
+        total = sum(latest.get(k, 0) for k in ["strongBuy", "buy", "hold", "sell", "strongSell"])
         bullish = latest.get("strongBuy", 0) + latest.get("buy", 0)
         bearish = latest.get("sell", 0) + latest.get("strongSell", 0)
         lines.append("")
@@ -223,15 +212,10 @@ def _format_earnings_history(data: list[dict[str, Any]], ticker: str) -> str:
                 misses += 1
         else:
             surprise_pct_str = str(surprise_pct)
-        lines.append(
-            f"| {period} | {actual} | {estimate} | {surprise} | {surprise_pct_str} |"
-        )
+        lines.append(f"| {period} | {actual} | {estimate} | {surprise} | {surprise_pct_str} |")
 
     lines.append("")
-    lines.append(
-        f"**Track record**: {beats} beats, {misses} misses "
-        f"out of {len(data)} quarters"
-    )
+    lines.append(f"**Track record**: {beats} beats, {misses} misses out of {len(data)} quarters")
 
     return "\n".join(lines)
 
@@ -269,9 +253,7 @@ def _format_insider_activity(data: list[dict[str, Any]], ticker: str) -> str:
             sell_value += value
 
         value_str = f"${value:,.0f}" if value else "N/A"
-        lines.append(
-            f"| {date} | {name} | {txn_type} | {abs(change):,.0f} | {value_str} |"
-        )
+        lines.append(f"| {date} | {name} | {txn_type} | {abs(change):,.0f} | {value_str} |")
 
     lines.append("")
     lines.append(

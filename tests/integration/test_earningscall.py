@@ -7,6 +7,10 @@ import os
 import pytest
 
 
+@pytest.mark.skipif(
+    not os.environ.get("EARNINGSCALL_API_KEY"),
+    reason="earningscall demo mode requires network access — skipping in CI",
+)
 class TestEarningsCallDemo:
     """Tests that work in demo mode (no API key required, AAPL/MSFT only)."""
 

@@ -84,31 +84,41 @@ class Investor13FSource(BaseSource):
                     else:
                         holdings_data = []
 
-                    content = json.dumps({
-                        "investor": investor_name,
-                        "cik": investor_cik,
-                        "filing_date": filed_date,
-                        "accession_no": accession,
-                        "holdings_count": len(holdings_data),
-                        "watchlist_holdings": [
-                            h for h in holdings_data
-                            if any(t in str(h) for t in watchlist_tickers)
-                        ],
-                    }, indent=2, default=str)
+                    content = json.dumps(
+                        {
+                            "investor": investor_name,
+                            "cik": investor_cik,
+                            "filing_date": filed_date,
+                            "accession_no": accession,
+                            "holdings_count": len(holdings_data),
+                            "watchlist_holdings": [
+                                h
+                                for h in holdings_data
+                                if any(t in str(h) for t in watchlist_tickers)
+                            ],
+                        },
+                        indent=2,
+                        default=str,
+                    )
 
                 except Exception as e:
                     logger.warning(
                         "Failed to parse 13F for %s (%s): %s",
-                        investor_name, accession, e,
+                        investor_name,
+                        accession,
+                        e,
                     )
                     # Still create document record with basic info
-                    content = json.dumps({
-                        "investor": investor_name,
-                        "cik": investor_cik,
-                        "filing_date": filed_date,
-                        "accession_no": accession,
-                        "parse_error": str(e),
-                    }, indent=2)
+                    content = json.dumps(
+                        {
+                            "investor": investor_name,
+                            "cik": investor_cik,
+                            "filing_date": filed_date,
+                            "accession_no": accession,
+                            "parse_error": str(e),
+                        },
+                        indent=2,
+                    )
 
                 # Persist
                 filename = f"{investor_cik}_{accession.replace('/', '_')}.json"

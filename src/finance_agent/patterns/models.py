@@ -47,18 +47,26 @@ class StrikeStrategy(StrEnum):
 class TriggerCondition(BaseModel):
     """A single condition that must be met for a pattern to trigger."""
 
-    field: str = Field(description="What to evaluate: 'price_change_pct', 'volume_spike', 'news_sentiment', 'sector'")
+    field: str = Field(
+        description="What to evaluate: 'price_change_pct', 'volume_spike', 'news_sentiment', 'sector'"
+    )
     operator: str = Field(description="Comparison: 'gte', 'lte', 'eq', 'contains'")
-    value: str = Field(description="Threshold value as string (e.g., '5.0', 'healthcare', 'positive')")
+    value: str = Field(
+        description="Threshold value as string (e.g., '5.0', 'healthcare', 'positive')"
+    )
     description: str = Field(description="Human-readable description of this condition")
 
 
 class EntrySignal(BaseModel):
     """When to enter a position after the trigger fires."""
 
-    condition: str = Field(description="What to watch for: 'pullback_pct', 'price_below', 'time_delay'")
+    condition: str = Field(
+        description="What to watch for: 'pullback_pct', 'price_below', 'time_delay'"
+    )
     value: str = Field(description="Threshold (e.g., '2.0' for 2% pullback)")
-    window_days: int = Field(default=2, description="How many trading days to wait for entry signal")
+    window_days: int = Field(
+        default=2, description="How many trading days to wait for entry signal"
+    )
     description: str = Field(description="Human-readable description")
 
 
@@ -66,9 +74,13 @@ class TradeAction(BaseModel):
     """What to do when the entry signal fires."""
 
     action_type: ActionType = Field(description="Type of trade")
-    strike_strategy: StrikeStrategy = Field(default=StrikeStrategy.ATM, description="Option strike selection")
+    strike_strategy: StrikeStrategy = Field(
+        default=StrikeStrategy.ATM, description="Option strike selection"
+    )
     expiration_days: int = Field(default=30, description="Days to expiration for options")
-    custom_strike_offset_pct: float | None = Field(default=None, description="Custom strike offset from current price")
+    custom_strike_offset_pct: float | None = Field(
+        default=None, description="Custom strike offset from current price"
+    )
     description: str = Field(description="Human-readable description")
 
 
@@ -77,19 +89,27 @@ class ExitCriteria(BaseModel):
 
     profit_target_pct: float = Field(default=20.0, description="Take profit at this % gain")
     stop_loss_pct: float = Field(default=10.0, description="Cut loss at this % decline")
-    max_hold_days: int | None = Field(default=None, description="Close after N days regardless (None = hold until target/stop)")
+    max_hold_days: int | None = Field(
+        default=None, description="Close after N days regardless (None = hold until target/stop)"
+    )
     description: str = Field(description="Human-readable description")
 
 
 class RuleSet(BaseModel):
     """The complete codified version of a trading pattern."""
 
-    trigger_type: TriggerType = Field(description="Quantitative (fully automatable) or qualitative (needs human confirmation)")
-    trigger_conditions: list[TriggerCondition] = Field(description="All conditions that must be met to trigger")
+    trigger_type: TriggerType = Field(
+        description="Quantitative (fully automatable) or qualitative (needs human confirmation)"
+    )
+    trigger_conditions: list[TriggerCondition] = Field(
+        description="All conditions that must be met to trigger"
+    )
     entry_signal: EntrySignal = Field(description="When to enter after trigger")
     action: TradeAction = Field(description="What position to take")
     exit_criteria: ExitCriteria = Field(description="When to close the position")
-    sector_filter: str | None = Field(default=None, description="Limit to specific sector (e.g., 'healthcare')")
+    sector_filter: str | None = Field(
+        default=None, description="Limit to specific sector (e.g., 'healthcare')"
+    )
     min_market_cap: float | None = Field(default=None, description="Minimum market cap in billions")
     min_avg_volume: int | None = Field(default=None, description="Minimum average daily volume")
 
@@ -222,26 +242,38 @@ class DetectedEvent(BaseModel):
     volume_multiple: float = Field(description="Volume as multiple of 20-day average")
     close_price: float = Field(description="Closing price on spike day")
     high_price: float = Field(description="Intraday high on spike day")
-    event_label: str | None = Field(default=None, description="Optional user-provided label (e.g., 'FDA approval')")
-    source: str = Field(description="'proxy' (automatic detection) or 'manual' (user-provided date)")
+    event_label: str | None = Field(
+        default=None, description="Optional user-provided label (e.g., 'FDA approval')"
+    )
+    source: str = Field(
+        description="'proxy' (automatic detection) or 'manual' (user-provided date)"
+    )
 
 
 class ManualEvent(BaseModel):
     """A user-provided event date for backtesting."""
 
     date: str = Field(description="Event date (YYYY-MM-DD)")
-    label: str | None = Field(default=None, description="Optional description (e.g., 'MRNA FDA approval')")
+    label: str | None = Field(
+        default=None, description="Optional description (e.g., 'MRNA FDA approval')"
+    )
 
 
 class EventDetectionConfig(BaseModel):
     """Configuration for the event detection engine."""
 
-    spike_threshold_pct: float = Field(default=5.0, description="Minimum single-day price increase %")
+    spike_threshold_pct: float = Field(
+        default=5.0, description="Minimum single-day price increase %"
+    )
     volume_multiple_min: float = Field(default=1.5, description="Minimum volume vs 20-day average")
     volume_lookback_days: int = Field(default=20, description="Days for average volume calculation")
-    cooldown_mode: str = Field(default="trade_lifecycle", description="How to handle consecutive spikes")
+    cooldown_mode: str = Field(
+        default="trade_lifecycle", description="How to handle consecutive spikes"
+    )
     entry_window_days: int = Field(default=2, description="Days to wait for entry after trigger")
-    manual_events: list[ManualEvent] | None = Field(default=None, description="User-provided event dates")
+    manual_events: list[ManualEvent] | None = Field(
+        default=None, description="User-provided event dates"
+    )
 
 
 class RegimeConfig(BaseModel):
@@ -249,8 +281,12 @@ class RegimeConfig(BaseModel):
 
     window_trading_days: int = Field(default=63, description="Rolling window size (~3 months)")
     strong_threshold: float = Field(default=0.60, description="Win rate >= this = 'strong'")
-    weak_threshold: float = Field(default=0.40, description="Win rate >= this but < strong = 'weak'; below = 'breakdown'")
-    min_trades_for_regime: int = Field(default=10, description="Skip regime analysis if fewer trades")
+    weak_threshold: float = Field(
+        default=0.40, description="Win rate >= this but < strong = 'weak'; below = 'breakdown'"
+    )
+    min_trades_for_regime: int = Field(
+        default=10, description="Skip regime analysis if fewer trades"
+    )
     min_trades_per_window: int = Field(default=3, description="Skip windows with fewer trades")
 
 
@@ -258,12 +294,20 @@ class TickerBreakdown(BaseModel):
     """Per-ticker results within a multi-ticker backtest."""
 
     ticker: str
-    events_detected: int = Field(default=0, description="Number of pattern trigger events for this ticker")
+    events_detected: int = Field(
+        default=0, description="Number of pattern trigger events for this ticker"
+    )
     trades_entered: int = Field(default=0, description="Number of trades that met entry criteria")
     win_count: int = Field(default=0, description="Trades with positive return")
-    win_rate: float = Field(default=0.0, description="win_count / trades_entered (0.0 if no trades)")
-    avg_return_pct: float = Field(default=0.0, description="Average per-trade return for this ticker")
-    total_return_pct: float = Field(default=0.0, description="Cumulative return across all trades for this ticker")
+    win_rate: float = Field(
+        default=0.0, description="win_count / trades_entered (0.0 if no trades)"
+    )
+    avg_return_pct: float = Field(
+        default=0.0, description="Average per-trade return for this ticker"
+    )
+    total_return_pct: float = Field(
+        default=0.0, description="Cumulative return across all trades for this ticker"
+    )
 
 
 class AggregatedBacktestReport(BaseModel):

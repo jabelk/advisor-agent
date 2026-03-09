@@ -81,7 +81,9 @@ class Analyzer:
         sections = self._split_into_sections(content)
         logger.info(
             "Large document (%d chars) split into %d sections for %s",
-            len(content), len(sections), company_ticker,
+            len(content),
+            len(sections),
+            company_ticker,
         )
 
         all_signals = []
@@ -100,12 +102,16 @@ class Analyzer:
 
         # Determine overall sentiment
         sentiments = [s.summary.lower() for s in all_signals if s.signal_type.value == "sentiment"]
-        bullish_count = sum(1 for s in sentiments if any(
-            w in s for w in ["bullish", "positive", "strong", "grew", "beat"]
-        ))
-        bearish_count = sum(1 for s in sentiments if any(
-            w in s for w in ["bearish", "negative", "weak", "decline", "miss"]
-        ))
+        bullish_count = sum(
+            1
+            for s in sentiments
+            if any(w in s for w in ["bullish", "positive", "strong", "grew", "beat"])
+        )
+        bearish_count = sum(
+            1
+            for s in sentiments
+            if any(w in s for w in ["bearish", "negative", "weak", "decline", "miss"])
+        )
         if bullish_count > bearish_count:
             overall = "bullish"
         elif bearish_count > bullish_count:

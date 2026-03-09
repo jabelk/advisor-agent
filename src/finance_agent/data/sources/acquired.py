@@ -83,8 +83,7 @@ class AcquiredPodcastSource(BaseSource):
             # Classify episode type
             episode_type = self._classify_episode(title)
             content_type = (
-                "podcast_deep_dive" if episode_type == "deep_dive"
-                else "podcast_interview"
+                "podcast_deep_dive" if episode_type == "deep_dive" else "podcast_interview"
             )
 
             # Build content from available data

@@ -157,7 +157,13 @@ def run_scan(
             start_date = (date.today() - timedelta(days=15)).isoformat()
             try:
                 bars = fetch_and_cache_bars(
-                    conn, ticker, start_date, end_date, "day", api_key, secret_key,
+                    conn,
+                    ticker,
+                    start_date,
+                    end_date,
+                    "day",
+                    api_key,
+                    secret_key,
                 )
             except Exception as e:
                 logger.warning("Failed to fetch bars for %s: %s", ticker, e)
@@ -207,7 +213,12 @@ def run_scan(
             # Auto-execution check
             if pattern.get("auto_execute"):
                 exec_result = _try_auto_execute(
-                    conn, audit, pattern, ticker, rule_set, alert_id,
+                    conn,
+                    audit,
+                    pattern,
+                    ticker,
+                    rule_set,
+                    alert_id,
                 )
                 if exec_result.get("executed"):
                     auto_executions += 1
@@ -231,13 +242,17 @@ def run_scan(
 
     # Audit log the scan
     if audit:
-        audit.log("scanner_run", "pattern_scanner", {
-            "patterns_evaluated": len(patterns),
-            "tickers_scanned": len(tickers_scanned),
-            "alerts_generated": len(alerts),
-            "auto_executions": auto_executions,
-            "auto_executions_blocked": auto_executions_blocked,
-        })
+        audit.log(
+            "scanner_run",
+            "pattern_scanner",
+            {
+                "patterns_evaluated": len(patterns),
+                "tickers_scanned": len(tickers_scanned),
+                "alerts_generated": len(alerts),
+                "auto_executions": auto_executions,
+                "auto_executions_blocked": auto_executions_blocked,
+            },
+        )
 
     return scan_result
 
@@ -260,12 +275,16 @@ def _try_auto_execute(
         result = {"blocked_reason": reason}
         update_alert_auto_execute(conn, alert_id, result)
         if audit:
-            audit.log("auto_execute_blocked", "pattern_scanner", {
-                "pattern_id": pattern["id"],
-                "ticker": ticker,
-                "alert_id": alert_id,
-                "reason": reason,
-            })
+            audit.log(
+                "auto_execute_blocked",
+                "pattern_scanner",
+                {
+                    "pattern_id": pattern["id"],
+                    "ticker": ticker,
+                    "alert_id": alert_id,
+                    "reason": reason,
+                },
+            )
         return result
 
     # Safety check 2: daily trade limit
@@ -283,12 +302,16 @@ def _try_auto_execute(
         result = {"blocked_reason": reason, "daily_count": today_count, "limit": max_trades}
         update_alert_auto_execute(conn, alert_id, result)
         if audit:
-            audit.log("auto_execute_blocked", "pattern_scanner", {
-                "pattern_id": pattern["id"],
-                "ticker": ticker,
-                "alert_id": alert_id,
-                "reason": reason,
-            })
+            audit.log(
+                "auto_execute_blocked",
+                "pattern_scanner",
+                {
+                    "pattern_id": pattern["id"],
+                    "ticker": ticker,
+                    "alert_id": alert_id,
+                    "reason": reason,
+                },
+            )
         return result
 
     # Execute: create paper trade
@@ -307,21 +330,29 @@ def _try_auto_execute(
         result = {"executed": True, "trade_id": trade_id}
         update_alert_auto_execute(conn, alert_id, result)
         if audit:
-            audit.log("auto_execute_success", "pattern_scanner", {
-                "pattern_id": pattern["id"],
-                "ticker": ticker,
-                "alert_id": alert_id,
-                "trade_id": trade_id,
-            })
+            audit.log(
+                "auto_execute_success",
+                "pattern_scanner",
+                {
+                    "pattern_id": pattern["id"],
+                    "ticker": ticker,
+                    "alert_id": alert_id,
+                    "trade_id": trade_id,
+                },
+            )
         return result
     except Exception as e:
         result = {"error": str(e)}
         update_alert_auto_execute(conn, alert_id, result)
         if audit:
-            audit.log("auto_execute_error", "pattern_scanner", {
-                "pattern_id": pattern["id"],
-                "ticker": ticker,
-                "alert_id": alert_id,
-                "error": str(e),
-            })
+            audit.log(
+                "auto_execute_error",
+                "pattern_scanner",
+                {
+                    "pattern_id": pattern["id"],
+                    "ticker": ticker,
+                    "alert_id": alert_id,
+                    "error": str(e),
+                },
+            )
         return result

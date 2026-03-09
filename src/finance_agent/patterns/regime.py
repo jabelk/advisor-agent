@@ -38,7 +38,8 @@ def detect_time_based_regimes(
     if len(trades) < config.min_trades_for_regime:
         logger.info(
             "Only %d trades (need %d) — skipping regime analysis",
-            len(trades), config.min_trades_for_regime,
+            len(trades),
+            config.min_trades_for_regime,
         )
         return []
 
@@ -70,19 +71,22 @@ def detect_time_based_regimes(
 
         # Collect trades in this window
         window_trades = [
-            t for t in sorted_trades
+            t
+            for t in sorted_trades
             if window_start <= datetime.strptime(t.trigger_date, "%Y-%m-%d") < window_end
         ]
 
         if len(window_trades) >= config.min_trades_per_window:
             win_rate = sum(1 for t in window_trades if t.return_pct > 0) / len(window_trades)
             label = _classify_win_rate(win_rate, config)
-            raw_regimes.append((
-                window_start.strftime("%Y-%m-%d"),
-                min(window_end, last_date + timedelta(days=1)).strftime("%Y-%m-%d"),
-                label,
-                window_trades,
-            ))
+            raw_regimes.append(
+                (
+                    window_start.strftime("%Y-%m-%d"),
+                    min(window_end, last_date + timedelta(days=1)).strftime("%Y-%m-%d"),
+                    label,
+                    window_trades,
+                )
+            )
 
         window_start += timedelta(days=step_days)
 
@@ -110,18 +114,30 @@ def detect_time_based_regimes(
                     existing_dates.add(t.trigger_date)
         else:
             # Save current regime and start new one
-            merged.append(_build_regime_from_window(
-                current_start, current_end, current_label, current_trades, config,
-            ))
+            merged.append(
+                _build_regime_from_window(
+                    current_start,
+                    current_end,
+                    current_label,
+                    current_trades,
+                    config,
+                )
+            )
             current_start = raw_regimes[i][0]
             current_end = w_end
             current_label = w_label
             current_trades = list(w_trades)
 
     # Save last regime
-    merged.append(_build_regime_from_window(
-        current_start, current_end, current_label, current_trades, config,
-    ))
+    merged.append(
+        _build_regime_from_window(
+            current_start,
+            current_end,
+            current_label,
+            current_trades,
+            config,
+        )
+    )
 
     return merged
 
@@ -152,7 +168,11 @@ def _build_regime(trades: list[BacktestTrade], config: RegimeConfig) -> RegimePe
 
 
 def _build_regime_from_window(
-    start: str, end: str, label: str, trades: list[BacktestTrade], config: RegimeConfig,
+    start: str,
+    end: str,
+    label: str,
+    trades: list[BacktestTrade],
+    config: RegimeConfig,
 ) -> RegimePeriod:
     """Build a RegimePeriod from merged window data."""
     win_rate = sum(1 for t in trades if t.return_pct > 0) / len(trades) if trades else 0.0

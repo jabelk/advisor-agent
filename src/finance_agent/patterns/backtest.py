@@ -170,10 +170,7 @@ def run_covered_call_backtest(
     contracts = shares // 100
 
     # Filter bars to date range
-    filtered_bars = [
-        b for b in bars
-        if start_date <= b["bar_timestamp"][:10] <= end_date
-    ]
+    filtered_bars = [b for b in bars if start_date <= b["bar_timestamp"][:10] <= end_date]
 
     if len(filtered_bars) < 22:  # Need at least ~1 month of data
         return _empty_cc_report(pattern_id, ticker, shares, start_date, end_date)
@@ -191,10 +188,7 @@ def run_covered_call_backtest(
 
         # Calculate historical volatility from bars up to this point
         # Use all available bars (not just filtered) for volatility calculation
-        bars_up_to_now = [
-            b for b in bars
-            if b["bar_timestamp"][:10] <= cycle_start_date
-        ]
+        bars_up_to_now = [b for b in bars if b["bar_timestamp"][:10] <= cycle_start_date]
         hist_vol = calculate_historical_volatility(bars_up_to_now, lookback_days=20)
 
         # Calculate strike price
@@ -208,8 +202,13 @@ def run_covered_call_backtest(
         cycle_pricing = "estimated"
         cycle_option_symbol = None
         real_contract = _try_real_option_pricing_for_cc(
-            conn, ticker, stock_entry_price, call_strike,
-            cycle_start_date, call_expiration_date, expiration_days,
+            conn,
+            ticker,
+            stock_entry_price,
+            call_strike,
+            cycle_start_date,
+            call_expiration_date,
+            expiration_days,
         )
 
         if real_contract and real_contract["pricing"] == "real":
@@ -254,7 +253,11 @@ def run_covered_call_backtest(
                 moneyness_factor = max(0.0, 1.0 - (call_strike - stock_price_at_exit) / call_strike)
                 current_premium *= moneyness_factor
 
-            premium_decay_pct = 1.0 - (current_premium / call_premium_per_share) if call_premium_per_share > 0 else 0
+            premium_decay_pct = (
+                1.0 - (current_premium / call_premium_per_share)
+                if call_premium_per_share > 0
+                else 0
+            )
             if premium_decay_pct >= premium_profit_target:
                 outcome = "closed_early"
                 cycle_end_idx = j
@@ -322,24 +325,26 @@ def run_covered_call_backtest(
             forfeited = stock_price_at_exit - call_strike
             capped_upside_pct = (forfeited / stock_entry_price) * 100.0
 
-        cycles.append(CoveredCallCycle(
-            ticker=ticker,
-            cycle_number=cycle_number,
-            stock_entry_price=stock_entry_price,
-            call_strike=round(call_strike, 2),
-            call_premium=round(call_premium_per_share * contracts * 100, 2),
-            call_expiration_date=call_expiration_date,
-            cycle_start_date=cycle_start_date,
-            cycle_end_date=cycle_end_date,
-            stock_price_at_exit=round(stock_price_at_exit, 2),
-            outcome=outcome,
-            premium_return_pct=round(premium_return_pct, 4),
-            total_return_pct=round(total_return_pct, 4),
-            capped_upside_pct=round(capped_upside_pct, 4),
-            historical_volatility=round(hist_vol, 4),
-            option_symbol=cycle_option_symbol,
-            pricing=cycle_pricing,
-        ))
+        cycles.append(
+            CoveredCallCycle(
+                ticker=ticker,
+                cycle_number=cycle_number,
+                stock_entry_price=stock_entry_price,
+                call_strike=round(call_strike, 2),
+                call_premium=round(call_premium_per_share * contracts * 100, 2),
+                call_expiration_date=call_expiration_date,
+                cycle_start_date=cycle_start_date,
+                cycle_end_date=cycle_end_date,
+                stock_price_at_exit=round(stock_price_at_exit, 2),
+                outcome=outcome,
+                premium_return_pct=round(premium_return_pct, 4),
+                total_return_pct=round(total_return_pct, 4),
+                capped_upside_pct=round(capped_upside_pct, 4),
+                historical_volatility=round(hist_vol, 4),
+                option_symbol=cycle_option_symbol,
+                pricing=cycle_pricing,
+            )
+        )
 
         # Advance to next cycle start (day after cycle end)
         i = cycle_end_idx + 1
@@ -355,12 +360,13 @@ def run_covered_call_backtest(
     # Annualized income yield
     if cycles and cycles[0].stock_entry_price > 0:
         total_days = (
-            datetime.strptime(end_date, "%Y-%m-%d")
-            - datetime.strptime(start_date, "%Y-%m-%d")
+            datetime.strptime(end_date, "%Y-%m-%d") - datetime.strptime(start_date, "%Y-%m-%d")
         ).days
         years = total_days / 365.0 if total_days > 0 else 1.0
         total_premium_per_share = sum(c.call_premium for c in cycles) / shares if shares > 0 else 0
-        annualized_yield = (total_premium_per_share / cycles[0].stock_entry_price) * (1 / years) * 100
+        annualized_yield = (
+            (total_premium_per_share / cycles[0].stock_entry_price) * (1 / years) * 100
+        )
     else:
         annualized_yield = 0.0
 
@@ -368,7 +374,9 @@ def run_covered_call_backtest(
     if filtered_bars:
         bh_start_price = filtered_bars[0]["close"]
         bh_end_price = filtered_bars[-1]["close"]
-        buy_and_hold_return = ((bh_end_price - bh_start_price) / bh_start_price) * 100 if bh_start_price > 0 else 0.0
+        buy_and_hold_return = (
+            ((bh_end_price - bh_start_price) / bh_start_price) * 100 if bh_start_price > 0 else 0.0
+        )
     else:
         buy_and_hold_return = 0.0
 
@@ -422,7 +430,11 @@ def _get_otm_pct(action) -> float:
 
 
 def _empty_cc_report(
-    pattern_id: int, ticker: str, shares: int, start_date: str, end_date: str,
+    pattern_id: int,
+    ticker: str,
+    shares: int,
+    start_date: str,
+    end_date: str,
 ) -> CoveredCallReport:
     """Return an empty covered call report when no data is available."""
     return CoveredCallReport(
@@ -625,7 +637,9 @@ def _execute_simulated_trade(
 
         # Try real option pricing
         real_pricing = _try_real_option_pricing(
-            conn, ticker, entry_price,
+            conn,
+            ticker,
+            entry_price,
             entry_bar["bar_timestamp"][:10],
             bars[exit_idx]["bar_timestamp"][:10],
             action,
@@ -760,7 +774,9 @@ def _try_real_option_pricing_for_cc(
         fetch_start = (entry_date - timedelta(days=5)).isoformat()
         fetch_end = (exit_date + timedelta(days=5)).isoformat()
 
-        bars = fetch_and_cache_option_bars(conn, symbol, fetch_start, fetch_end, api_key, secret_key)
+        bars = fetch_and_cache_option_bars(
+            conn, symbol, fetch_start, fetch_end, api_key, secret_key
+        )
 
         # Try ±1 strike increment if no data
         if not bars:
@@ -876,10 +892,12 @@ def detect_regimes(trades: list[BacktestTrade]) -> list[RegimePeriod]:
 
     regimes: list[RegimePeriod] = []
     current_regime_start = 0
-    current_label = _classify_regime(trades[:REGIME_WINDOW_SIZE], overall_win_rate, overall_avg_return)
+    current_label = _classify_regime(
+        trades[:REGIME_WINDOW_SIZE], overall_win_rate, overall_avg_return
+    )
 
     for i in range(1, len(trades) - REGIME_WINDOW_SIZE + 1):
-        window = trades[i:i + REGIME_WINDOW_SIZE]
+        window = trades[i : i + REGIME_WINDOW_SIZE]
         label = _classify_regime(window, overall_win_rate, overall_avg_return)
 
         if label != current_label:
@@ -888,14 +906,16 @@ def detect_regimes(trades: list[BacktestTrade]) -> list[RegimePeriod]:
             if regime_trades:
                 regime_wr = sum(1 for t in regime_trades if t.return_pct > 0) / len(regime_trades)
                 regime_avg = sum(t.return_pct for t in regime_trades) / len(regime_trades)
-                regimes.append(RegimePeriod(
-                    start_date=regime_trades[0].trigger_date,
-                    end_date=regime_trades[-1].trigger_date,
-                    win_rate=regime_wr,
-                    avg_return_pct=regime_avg,
-                    trade_count=len(regime_trades),
-                    label=current_label,
-                ))
+                regimes.append(
+                    RegimePeriod(
+                        start_date=regime_trades[0].trigger_date,
+                        end_date=regime_trades[-1].trigger_date,
+                        win_rate=regime_wr,
+                        avg_return_pct=regime_avg,
+                        trade_count=len(regime_trades),
+                        label=current_label,
+                    )
+                )
             current_regime_start = i
             current_label = label
 
@@ -904,14 +924,16 @@ def detect_regimes(trades: list[BacktestTrade]) -> list[RegimePeriod]:
     if regime_trades:
         regime_wr = sum(1 for t in regime_trades if t.return_pct > 0) / len(regime_trades)
         regime_avg = sum(t.return_pct for t in regime_trades) / len(regime_trades)
-        regimes.append(RegimePeriod(
-            start_date=regime_trades[0].trigger_date,
-            end_date=regime_trades[-1].trigger_date,
-            win_rate=regime_wr,
-            avg_return_pct=regime_avg,
-            trade_count=len(regime_trades),
-            label=current_label,
-        ))
+        regimes.append(
+            RegimePeriod(
+                start_date=regime_trades[0].trigger_date,
+                end_date=regime_trades[-1].trigger_date,
+                win_rate=regime_wr,
+                avg_return_pct=regime_avg,
+                trade_count=len(regime_trades),
+                label=current_label,
+            )
+        )
 
     return regimes
 
@@ -985,7 +1007,9 @@ def run_news_dip_backtest(
     # Detect events: manual overrides automatic detection
     if event_config.manual_events:
         events: list[DetectedEvent] = manual_events_to_detected(
-            event_config.manual_events, bars, ticker,
+            event_config.manual_events,
+            bars,
+            ticker,
         )
     else:
         events = detect_spike_events(bars, ticker, event_config)
@@ -1010,12 +1034,14 @@ def run_news_dip_backtest(
             # Track as a no-entry event
             pullback_pct = rule_set.entry_signal.value
             window_days = rule_set.entry_signal.window_days
-            no_entry_events.append({
-                "date": event.date,
-                "spike_pct": event.price_change_pct,
-                "volume_multiple": event.volume_multiple,
-                "reason": f"No {pullback_pct}% pullback within {window_days}-day window",
-            })
+            no_entry_events.append(
+                {
+                    "date": event.date,
+                    "spike_pct": event.price_change_pct,
+                    "volume_multiple": event.volume_multiple,
+                    "reason": f"No {pullback_pct}% pullback within {window_days}-day window",
+                }
+            )
 
     # Sort trades by trigger date
     trades.sort(key=lambda t: t.trigger_date)
@@ -1031,6 +1057,7 @@ def run_news_dip_backtest(
 
     # Regime analysis
     from finance_agent.patterns.regime import detect_time_based_regimes
+
     regimes = detect_time_based_regimes(trades) if trades else []
 
     report = BacktestReport(
@@ -1090,15 +1117,17 @@ def run_multi_ticker_news_dip_backtest(
 
         if not bars:
             # No price data: zero-count breakdown, excluded from aggregates
-            ticker_breakdowns.append(TickerBreakdown(
-                ticker=ticker,
-                events_detected=0,
-                trades_entered=0,
-                win_count=0,
-                win_rate=0.0,
-                avg_return_pct=0.0,
-                total_return_pct=0.0,
-            ))
+            ticker_breakdowns.append(
+                TickerBreakdown(
+                    ticker=ticker,
+                    events_detected=0,
+                    trades_entered=0,
+                    win_count=0,
+                    win_rate=0.0,
+                    avg_return_pct=0.0,
+                    total_return_pct=0.0,
+                )
+            )
             continue
 
         # Run single-ticker backtest
@@ -1114,15 +1143,17 @@ def run_multi_ticker_news_dip_backtest(
         )
 
         # Build per-ticker breakdown from the single-ticker report
-        ticker_breakdowns.append(TickerBreakdown(
-            ticker=ticker,
-            events_detected=report.trigger_count,
-            trades_entered=report.trade_count,
-            win_count=report.win_count,
-            win_rate=(report.win_count / report.trade_count) if report.trade_count > 0 else 0.0,
-            avg_return_pct=report.avg_return_pct,
-            total_return_pct=report.total_return_pct,
-        ))
+        ticker_breakdowns.append(
+            TickerBreakdown(
+                ticker=ticker,
+                events_detected=report.trigger_count,
+                trades_entered=report.trade_count,
+                win_count=report.win_count,
+                win_rate=(report.win_count / report.trade_count) if report.trade_count > 0 else 0.0,
+                avg_return_pct=report.avg_return_pct,
+                total_return_pct=report.total_return_pct,
+            )
+        )
 
         # Pool trades and no-entry events
         all_trades.extend(report.trades)

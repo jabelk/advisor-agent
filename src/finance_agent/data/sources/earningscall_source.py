@@ -77,8 +77,10 @@ class EarningsCallSource(BaseSource):
 
                     # Persist raw JSON
                     raw_data = {
-                        "ticker": ticker, "year": year,
-                        "quarter": quarter, "text": str(transcript),
+                        "ticker": ticker,
+                        "year": year,
+                        "quarter": quarter,
+                        "text": str(transcript),
                     }
                     raw_json = json.dumps(raw_data, indent=2)
                     filename = f"{ticker}_Q{quarter}_{year}.json"
@@ -112,7 +114,10 @@ class EarningsCallSource(BaseSource):
                 except Exception as e:
                     logger.warning(
                         "Failed to fetch transcript Q%d %d for %s: %s",
-                        quarter, year, ticker, e,
+                        quarter,
+                        year,
+                        ticker,
+                        e,
                     )
                     continue
 

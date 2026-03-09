@@ -58,60 +58,76 @@ def translate_filters_to_listview(
     # --- Supported filter mappings ---
 
     if filters.min_age is not None:
-        lv_filters.append({
-            "field": "Age__c",
-            "operation": "greaterOrEqual",
-            "value": str(filters.min_age),
-        })
+        lv_filters.append(
+            {
+                "field": "Age__c",
+                "operation": "greaterOrEqual",
+                "value": str(filters.min_age),
+            }
+        )
 
     if filters.max_age is not None:
-        lv_filters.append({
-            "field": "Age__c",
-            "operation": "lessOrEqual",
-            "value": str(filters.max_age),
-        })
+        lv_filters.append(
+            {
+                "field": "Age__c",
+                "operation": "lessOrEqual",
+                "value": str(filters.max_age),
+            }
+        )
 
     if filters.min_value is not None:
-        lv_filters.append({
-            "field": "Account_Value__c",
-            "operation": "greaterOrEqual",
-            "value": str(filters.min_value),
-        })
+        lv_filters.append(
+            {
+                "field": "Account_Value__c",
+                "operation": "greaterOrEqual",
+                "value": str(filters.min_value),
+            }
+        )
 
     if filters.max_value is not None:
-        lv_filters.append({
-            "field": "Account_Value__c",
-            "operation": "lessOrEqual",
-            "value": str(filters.max_value),
-        })
+        lv_filters.append(
+            {
+                "field": "Account_Value__c",
+                "operation": "lessOrEqual",
+                "value": str(filters.max_value),
+            }
+        )
 
     if filters.risk_tolerances:
-        lv_filters.append({
-            "field": "Risk_Tolerance__c",
-            "operation": "equals",
-            "value": ",".join(filters.risk_tolerances),
-        })
+        lv_filters.append(
+            {
+                "field": "Risk_Tolerance__c",
+                "operation": "equals",
+                "value": ",".join(filters.risk_tolerances),
+            }
+        )
 
     if filters.life_stages:
-        lv_filters.append({
-            "field": "Life_Stage__c",
-            "operation": "equals",
-            "value": ",".join(filters.life_stages),
-        })
+        lv_filters.append(
+            {
+                "field": "Life_Stage__c",
+                "operation": "equals",
+                "value": ",".join(filters.life_stages),
+            }
+        )
 
     if filters.contacted_after is not None:
-        lv_filters.append({
-            "field": "ACTIVITY_DATE",
-            "operation": "greaterOrEqual",
-            "value": filters.contacted_after,
-        })
+        lv_filters.append(
+            {
+                "field": "ACTIVITY_DATE",
+                "operation": "greaterOrEqual",
+                "value": filters.contacted_after,
+            }
+        )
 
     if filters.contacted_before is not None:
-        lv_filters.append({
-            "field": "ACTIVITY_DATE",
-            "operation": "lessOrEqual",
-            "value": filters.contacted_before,
-        })
+        lv_filters.append(
+            {
+                "field": "ACTIVITY_DATE",
+                "operation": "lessOrEqual",
+                "value": filters.contacted_before,
+            }
+        )
 
     # --- Unsupported filters — generate warnings ---
 
@@ -122,30 +138,23 @@ def translate_filters_to_listview(
         )
 
     if filters.search is not None:
-        warnings.append(
-            "search filter cannot be represented in List View filters — omitted"
-        )
+        warnings.append("search filter cannot be represented in List View filters — omitted")
 
     # Sort warning (only warn once for sort_by and sort_dir together)
     sort_non_default = (filters.sort_by != "account_value") or (filters.sort_dir != "desc")
     if sort_non_default:
         warnings.append(
-            "sort_by/sort_dir not supported in List Views "
-            "(Salesforce applies default sort)"
+            "sort_by/sort_dir not supported in List Views (Salesforce applies default sort)"
         )
 
     if filters.limit != 50:
-        warnings.append(
-            "limit not supported in List Views (all matching contacts shown)"
-        )
+        warnings.append("limit not supported in List Views (all matching contacts shown)")
 
     # --- Enforce max 10 filter limit ---
 
     if len(lv_filters) > 10:
         lv_filters = lv_filters[:10]
-        warnings.append(
-            "List View filter limit (10) exceeded — some filters truncated"
-        )
+        warnings.append("List View filter limit (10) exceeded — some filters truncated")
 
     return lv_filters, warnings
 
@@ -202,9 +211,7 @@ def create_listview(sf: Salesforce, name: str, filters: CompoundFilter) -> dict:
     url = f"https://{sf.sf_instance}/lightning/o/Contact/list?filterName={lv_id}"
 
     if warnings:
-        warnings.append(
-            "The Salesforce List View may show more results than the CLI query"
-        )
+        warnings.append("The Salesforce List View may show more results than the CLI query")
 
     return {
         "id": lv_id,
@@ -232,12 +239,14 @@ def list_listviews(sf: Salesforce) -> list[dict]:
         display_name = rec["Name"]
         if display_name.startswith("AA: "):
             display_name = display_name[4:]
-        views.append({
-            "id": rec["Id"],
-            "name": display_name,
-            "developer_name": rec["DeveloperName"],
-            "url": f"https://{sf.sf_instance}/lightning/o/Contact/list?filterName={rec['Id']}",
-        })
+        views.append(
+            {
+                "id": rec["Id"],
+                "name": display_name,
+                "developer_name": rec["DeveloperName"],
+                "url": f"https://{sf.sf_instance}/lightning/o/Contact/list?filterName={rec['Id']}",
+            }
+        )
 
     return sorted(views, key=lambda v: v["name"].lower())
 

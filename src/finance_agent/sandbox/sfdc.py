@@ -21,8 +21,12 @@ from simple_salesforce import Salesforce
 
 # Fields we need on the Contact object for advisor workflow data
 REQUIRED_CUSTOM_FIELDS = [
-    "Age__c", "Account_Value__c", "Risk_Tolerance__c",
-    "Life_Stage__c", "Investment_Goals__c", "Household_Members__c",
+    "Age__c",
+    "Account_Value__c",
+    "Risk_Tolerance__c",
+    "Life_Stage__c",
+    "Investment_Goals__c",
+    "Household_Members__c",
 ]
 
 
@@ -202,9 +206,7 @@ def ensure_custom_fields(sf: Salesforce) -> list[str]:
         return []
 
     # Build deployment zip with fields + permission set
-    members = "\n        ".join(
-        f"<members>Contact.{f}</members>" for f in REQUIRED_CUSTOM_FIELDS
-    )
+    members = "\n        ".join(f"<members>Contact.{f}</members>" for f in REQUIRED_CUSTOM_FIELDS)
     package_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Package xmlns="http://soap.sforce.com/2006/04/metadata">
     <types>
@@ -229,14 +231,16 @@ def ensure_custom_fields(sf: Salesforce) -> list[str]:
     api_version = sf.sf_version or "66.0"
     deploy_url = f"https://{sf.sf_instance}/services/data/v{api_version}/metadata/deployRequest"
     headers = {"Authorization": f"Bearer {sf.session_id}"}
-    deploy_options = json.dumps({
-        "deployOptions": {
-            "allowMissingFiles": False,
-            "checkOnly": False,
-            "singlePackage": True,
-            "rollbackOnError": True,
+    deploy_options = json.dumps(
+        {
+            "deployOptions": {
+                "allowMissingFiles": False,
+                "checkOnly": False,
+                "singlePackage": True,
+                "rollbackOnError": True,
+            }
         }
-    })
+    )
 
     resp = requests.post(
         deploy_url,
@@ -253,9 +257,7 @@ def ensure_custom_fields(sf: Salesforce) -> list[str]:
     # Poll for completion
     for _ in range(20):
         time.sleep(3)
-        status_resp = requests.get(
-            f"{deploy_url}/{deploy_id}", headers=headers, timeout=30
-        )
+        status_resp = requests.get(f"{deploy_url}/{deploy_id}", headers=headers, timeout=30)
         result = status_resp.json().get("deployResult", {})
         status = result.get("status")
         if status == "Succeeded":
@@ -290,6 +292,4 @@ def _assign_permission_set(sf: Salesforce) -> None:
                 f"WHERE PermissionSetId = '{ps_id}' AND AssigneeId = '{user_id}'"
             )
             if not existing.get("records"):
-                sf.PermissionSetAssignment.create(
-                    {"PermissionSetId": ps_id, "AssigneeId": user_id}
-                )
+                sf.PermissionSetAssignment.create({"PermissionSetId": ps_id, "AssigneeId": user_id})

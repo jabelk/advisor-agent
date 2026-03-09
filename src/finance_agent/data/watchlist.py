@@ -22,9 +22,7 @@ def add_company(
     ticker = ticker.upper()
 
     # Check if already exists (including soft-deleted)
-    existing = conn.execute(
-        "SELECT id, active FROM company WHERE ticker = ?", (ticker,)
-    ).fetchone()
+    existing = conn.execute("SELECT id, active FROM company WHERE ticker = ?", (ticker,)).fetchone()
 
     if existing:
         if existing["active"]:

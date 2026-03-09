@@ -76,9 +76,7 @@ class SECEdgarSource(BaseSource):
                         if not content:
                             content = str(filing.text())
                     except Exception as e:
-                        logger.warning(
-                            "Failed to get content for %s %s: %s", ticker, accession, e
-                        )
+                        logger.warning("Failed to get content for %s %s: %s", ticker, accession, e)
                         continue
 
                     # Persist to filesystem

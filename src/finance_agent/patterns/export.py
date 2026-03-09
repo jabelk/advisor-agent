@@ -31,7 +31,9 @@ def export_backtest_markdown(
     lines.append("")
     lines.append(f"**Generated**: {today}")
     lines.append(f"**Pattern**: {pattern_name} (#{pattern_id})")
-    lines.append(f"**Date Range**: {backtest.get('date_range_start', '')} to {backtest.get('date_range_end', '')}")
+    lines.append(
+        f"**Date Range**: {backtest.get('date_range_start', '')} to {backtest.get('date_range_end', '')}"
+    )
     lines.append("")
 
     # Pattern description
@@ -131,7 +133,9 @@ def export_ab_test_markdown(
         wr = f"{cr.win_count / cr.trade_count * 100:.1f}%" if cr.trade_count > 0 else "—"
         sign = "+" if cr.avg_return_pct >= 0 else ""
         ar = f"{sign}{cr.avg_return_pct:.1f}%" if cr.trade_count > 0 else "—"
-        lines.append(f"| {vr.pattern_id} | {name} | {cr.trigger_count} | {cr.trade_count} | {wr} | {ar} |")
+        lines.append(
+            f"| {vr.pattern_id} | {name} | {cr.trigger_count} | {cr.trade_count} | {wr} | {ar} |"
+        )
     lines.append("")
 
     # Statistical significance

@@ -100,6 +100,8 @@ This project started as a copy of finance-agent and inherits:
 - Salesforce platform (ListViews via Metadata API, Reports via Analytics REST API) — no local storage for this feature (021-sfdc-native-lists)
 - Python 3.12+ with type hints + simple_salesforce (SFDC API), pydantic (models), fastmcp (MCP tools), anthropic (not needed for this feature) (022-sfdc-task-logging)
 - Salesforce Task standard object (no local SQLite) (022-sfdc-task-logging)
+- Python 3.12+ with type hints + fastmcp 2.14.5 (Streamable HTTP + StaticTokenVerifier), simple_salesforce, alpaca-py, anthropic (023-railway-deploy)
+- SQLite (WAL mode) on Railway persistent volume at `/app/data` (023-railway-deploy)
 
 ## Recent Changes
 - 011-pattern-lab: Added Python 3.12+ + alpaca-py (broker + market data), anthropic (Claude for pattern parsing), pydantic (structured models), fastmcp (MCP tool exposure)
