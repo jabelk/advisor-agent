@@ -23,16 +23,11 @@ Work through these in order. Each one takes about 15 minutes.
 
 ## Getting Started
 
-You need two things to begin:
+**First time?** Follow the **[Claude Desktop Setup Guide](setup-claude-desktop.md)** — it walks you through downloading the app, connecting it to your Salesforce sandbox, and (optionally) setting up the tutor. Takes about 10 minutes.
 
-1. **Claude Desktop** — download free at [claude.ai/download](https://claude.ai/download)
-2. **Salesforce sandbox** — login credentials sent to you separately
+You can read all the lessons right here on this page — just click the links in the table above. No downloads needed to read them.
 
-You can read all the lessons right here on this page — just click the links in the table above. No downloads needed to get started.
-
-Start with [Lesson 0](00-getting-started.md) — it walks you through setup step by step, no technical experience needed.
-
-> **Optional later**: If you want Claude to act as a dedicated tutor (recommended but not required), Lesson 0 explains how to download these files and set up a Claude Desktop Project.
+After Claude Desktop is set up, start with **[Lesson 0: Getting Started](00-getting-started.md)** to learn your way around the Salesforce sandbox.
 
 ## The Claude Tutor
 
