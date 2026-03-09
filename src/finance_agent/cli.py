@@ -58,7 +58,9 @@ def main(argv: list[str] | None = None) -> None:
     research_sub = research_parser.add_subparsers(dest="research_command")
     run_parser = research_sub.add_parser("run", help="Run research pipeline")
     run_parser.add_argument(
-        "--source", action="append", dest="sources",
+        "--source",
+        action="append",
+        dest="sources",
         help="Limit to specific source "
         "(sec, transcripts, finnhub, acquired, stratechery, investors)",
     )
@@ -80,39 +82,57 @@ def main(argv: list[str] | None = None) -> None:
 
     # Pattern Lab commands
     pattern_parser = subparsers.add_parser(
-        "pattern", help="Pattern Lab: describe, backtest, and paper trade patterns",
+        "pattern",
+        help="Pattern Lab: describe, backtest, and paper trade patterns",
     )
     pattern_sub = pattern_parser.add_subparsers(dest="pattern_command")
 
     pat_describe = pattern_sub.add_parser(
-        "describe", help="Describe a trading pattern in plain text",
+        "describe",
+        help="Describe a trading pattern in plain text",
     )
     pat_describe.add_argument("description", help="Plain-text pattern description")
 
     pat_backtest = pattern_sub.add_parser(
-        "backtest", help="Backtest a pattern against historical data",
+        "backtest",
+        help="Backtest a pattern against historical data",
     )
     pat_backtest.add_argument("pattern_id", type=int, help="Pattern ID to backtest")
     pat_backtest.add_argument("--start", help="Start date (YYYY-MM-DD, default: 1 year ago)")
     pat_backtest.add_argument("--end", help="End date (YYYY-MM-DD, default: today)")
     pat_backtest.add_argument("--tickers", help="Comma-separated tickers to test against")
     pat_backtest.add_argument(
-        "--shares", type=int, default=100,
+        "--shares",
+        type=int,
+        default=100,
         help="Number of shares owned (for covered calls, default: 100)",
     )
     pat_backtest.add_argument("--events", help="Manual event dates (comma-separated YYYY-MM-DD)")
     pat_backtest.add_argument("--events-file", help="File with event dates (one per line)")
-    pat_backtest.add_argument("--spike-threshold", type=float, help="Override spike threshold %% (default: from pattern)")
-    pat_backtest.add_argument("--volume-multiple", type=float, help="Override volume multiplier (default: from pattern)")
+    pat_backtest.add_argument(
+        "--spike-threshold", type=float, help="Override spike threshold %% (default: from pattern)"
+    )
+    pat_backtest.add_argument(
+        "--volume-multiple", type=float, help="Override volume multiplier (default: from pattern)"
+    )
 
     pat_paper = pattern_sub.add_parser("paper-trade", help="Activate pattern for paper trading")
     pat_paper.add_argument("pattern_id", type=int, help="Pattern ID to paper trade")
-    pat_paper.add_argument("--auto-approve", action="store_true", help="Skip manual approval for trades")
+    pat_paper.add_argument(
+        "--auto-approve", action="store_true", help="Skip manual approval for trades"
+    )
     pat_paper.add_argument("--tickers", help="Limit monitoring to specific tickers")
-    pat_paper.add_argument("--shares", type=int, default=100, help="Number of shares owned (for covered calls, default: 100)")
+    pat_paper.add_argument(
+        "--shares",
+        type=int,
+        default=100,
+        help="Number of shares owned (for covered calls, default: 100)",
+    )
 
     pat_list = pattern_sub.add_parser("list", help="List all patterns")
-    pat_list.add_argument("--status", help="Filter by status (draft, backtested, paper_trading, retired)")
+    pat_list.add_argument(
+        "--status", help="Filter by status (draft, backtested, paper_trading, retired)"
+    )
 
     pat_show = pattern_sub.add_parser("show", help="Show pattern details")
     pat_show.add_argument("pattern_id", type=int, help="Pattern ID")
@@ -123,64 +143,109 @@ def main(argv: list[str] | None = None) -> None:
     pat_retire = pattern_sub.add_parser("retire", help="Retire a pattern")
     pat_retire.add_argument("pattern_id", type=int, help="Pattern ID to retire")
 
-    pat_ab_test = pattern_sub.add_parser("ab-test", help="A/B test pattern variants with statistical significance")
-    pat_ab_test.add_argument("pattern_ids", type=int, nargs="+", help="Two or more pattern IDs to compare")
+    pat_ab_test = pattern_sub.add_parser(
+        "ab-test", help="A/B test pattern variants with statistical significance"
+    )
+    pat_ab_test.add_argument(
+        "pattern_ids", type=int, nargs="+", help="Two or more pattern IDs to compare"
+    )
     pat_ab_test.add_argument("--tickers", required=True, help="Comma-separated tickers (required)")
     pat_ab_test.add_argument("--start", help="Start date (YYYY-MM-DD, default: 1 year ago)")
     pat_ab_test.add_argument("--end", help="End date (YYYY-MM-DD, default: today)")
 
     pat_export = pattern_sub.add_parser("export", help="Export backtest results to markdown")
     pat_export.add_argument("pattern_id", type=int, help="Pattern ID to export results for")
-    pat_export.add_argument("--format", default="markdown", dest="export_format", help="Output format (default: markdown)")
+    pat_export.add_argument(
+        "--format",
+        default="markdown",
+        dest="export_format",
+        help="Output format (default: markdown)",
+    )
     pat_export.add_argument("--output", help="Output file path (default: auto-generated)")
     pat_export.add_argument("--backtest-id", type=int, help="Specific backtest result ID to export")
 
-    pat_scan = pattern_sub.add_parser("scan", help="Scan all active patterns against live market data")
+    pat_scan = pattern_sub.add_parser(
+        "scan", help="Scan all active patterns against live market data"
+    )
     pat_scan.add_argument("--watch", type=int, metavar="N", help="Repeat scan every N minutes")
-    pat_scan.add_argument("--cooldown", type=int, default=24, help="Deduplication cooldown in hours (default: 24)")
+    pat_scan.add_argument(
+        "--cooldown", type=int, default=24, help="Deduplication cooldown in hours (default: 24)"
+    )
 
     pat_alerts = pattern_sub.add_parser("alerts", help="List and manage pattern alerts")
-    pat_alerts.add_argument("action", nargs="?", help="Action: ack, dismiss, acted (requires alert ID)")
-    pat_alerts.add_argument("alert_id", nargs="?", type=int, help="Alert ID for ack/dismiss/acted actions")
-    pat_alerts.add_argument("--status", help="Filter by status (new, acknowledged, acted_on, dismissed)")
+    pat_alerts.add_argument(
+        "action", nargs="?", help="Action: ack, dismiss, acted (requires alert ID)"
+    )
+    pat_alerts.add_argument(
+        "alert_id", nargs="?", type=int, help="Alert ID for ack/dismiss/acted actions"
+    )
+    pat_alerts.add_argument(
+        "--status", help="Filter by status (new, acknowledged, acted_on, dismissed)"
+    )
     pat_alerts.add_argument("--pattern-id", type=int, help="Filter by pattern ID")
     pat_alerts.add_argument("--ticker", help="Filter by ticker")
     pat_alerts.add_argument("--days", type=int, default=7, help="Show last N days (default: 7)")
 
-    pat_auto_exec = pattern_sub.add_parser("auto-execute", help="Enable/disable auto-execution for a pattern")
+    pat_auto_exec = pattern_sub.add_parser(
+        "auto-execute", help="Enable/disable auto-execution for a pattern"
+    )
     pat_auto_exec.add_argument("pattern_id", type=int, help="Pattern ID")
     pat_auto_exec_group = pat_auto_exec.add_mutually_exclusive_group(required=True)
     pat_auto_exec_group.add_argument("--enable", action="store_true", help="Enable auto-execution")
-    pat_auto_exec_group.add_argument("--disable", action="store_true", help="Disable auto-execution")
+    pat_auto_exec_group.add_argument(
+        "--disable", action="store_true", help="Disable auto-execution"
+    )
 
     pattern_sub.add_parser("dashboard", help="Show portfolio dashboard across all patterns")
 
-    pat_perf = pattern_sub.add_parser("perf", help="Compare backtest predictions vs paper trade actuals")
-    pat_perf.add_argument("pattern_id", nargs="?", type=int, help="Pattern ID (default: all patterns)")
+    pat_perf = pattern_sub.add_parser(
+        "perf", help="Compare backtest predictions vs paper trade actuals"
+    )
+    pat_perf.add_argument(
+        "pattern_id", nargs="?", type=int, help="Pattern ID (default: all patterns)"
+    )
 
     pat_schedule = pattern_sub.add_parser("schedule", help="Manage automated scan schedule")
     schedule_sub = pat_schedule.add_subparsers(dest="schedule_command")
     sched_install = schedule_sub.add_parser("install", help="Install recurring scan schedule")
-    sched_install.add_argument("--interval", type=int, required=True, help="Scan interval in minutes")
-    sched_install.add_argument("--cooldown", type=int, default=24, help="Deduplication cooldown hours (default: 24)")
+    sched_install.add_argument(
+        "--interval", type=int, required=True, help="Scan interval in minutes"
+    )
+    sched_install.add_argument(
+        "--cooldown", type=int, default=24, help="Deduplication cooldown hours (default: 24)"
+    )
     schedule_sub.add_parser("list", help="Show current schedule status")
     schedule_sub.add_parser("pause", help="Pause the scan schedule")
     schedule_sub.add_parser("resume", help="Resume a paused scan schedule")
     schedule_sub.add_parser("remove", help="Remove the scan schedule entirely")
 
     # Sandbox CRM commands
-    sandbox_parser = subparsers.add_parser("sandbox", help="Salesforce CRM sandbox for advisor workflow training")
+    sandbox_parser = subparsers.add_parser(
+        "sandbox", help="Salesforce CRM sandbox for advisor workflow training"
+    )
     sandbox_sub = sandbox_parser.add_subparsers(dest="sandbox_command")
 
     sandbox_sub.add_parser("setup", help="Create custom fields on Salesforce Contact object")
 
     sb_seed = sandbox_sub.add_parser("seed", help="Push synthetic client data to Salesforce")
-    sb_seed.add_argument("--count", type=int, default=50, help="Number of clients to generate (default: 50)")
-    sb_seed.add_argument("--reset", action="store_true", help="Delete existing sandbox data before seeding")
+    sb_seed.add_argument(
+        "--count", type=int, default=50, help="Number of clients to generate (default: 50)"
+    )
+    sb_seed.add_argument(
+        "--reset", action="store_true", help="Delete existing sandbox data before seeding"
+    )
 
     sb_list = sandbox_sub.add_parser("list", help="List clients from Salesforce")
-    sb_list.add_argument("--risk", nargs="+", help="Filter by risk tolerance(s): conservative moderate growth aggressive")
-    sb_list.add_argument("--stage", nargs="+", help="Filter by life stage(s): accumulation pre-retirement retirement legacy")
+    sb_list.add_argument(
+        "--risk",
+        nargs="+",
+        help="Filter by risk tolerance(s): conservative moderate growth aggressive",
+    )
+    sb_list.add_argument(
+        "--stage",
+        nargs="+",
+        help="Filter by life stage(s): accumulation pre-retirement retirement legacy",
+    )
     sb_list.add_argument("--min-value", type=float, help="Minimum account value")
     sb_list.add_argument("--max-value", type=float, help="Maximum account value")
     sb_list.add_argument("--search", help="Search by name or notes")
@@ -189,8 +254,15 @@ def main(argv: list[str] | None = None) -> None:
     sb_list.add_argument("--not-contacted-days", type=int, help="Clients not contacted in N days")
     sb_list.add_argument("--contacted-after", help="Last contact on or after date (YYYY-MM-DD)")
     sb_list.add_argument("--contacted-before", help="Last contact on or before date (YYYY-MM-DD)")
-    sb_list.add_argument("--sort-by", choices=["account_value", "age", "last_name", "last_interaction_date"], default="account_value", help="Sort field")
-    sb_list.add_argument("--sort-dir", choices=["asc", "desc"], default="desc", help="Sort direction")
+    sb_list.add_argument(
+        "--sort-by",
+        choices=["account_value", "age", "last_name", "last_interaction_date"],
+        default="account_value",
+        help="Sort field",
+    )
+    sb_list.add_argument(
+        "--sort-dir", choices=["asc", "desc"], default="desc", help="Sort direction"
+    )
     sb_list.add_argument("--limit", type=int, default=50, help="Max results (default: 50)")
 
     sb_view = sandbox_sub.add_parser("view", help="View a client profile")
@@ -226,7 +298,9 @@ def main(argv: list[str] | None = None) -> None:
     sb_lists = sandbox_sub.add_parser("lists", help="Manage Salesforce List Views")
     lists_sub = sb_lists.add_subparsers(dest="lists_command")
 
-    sb_lists_save = lists_sub.add_parser("save", help="Save compound filters as a Salesforce List View")
+    sb_lists_save = lists_sub.add_parser(
+        "save", help="Save compound filters as a Salesforce List View"
+    )
     sb_lists_save.add_argument("--name", required=True, help="List View name")
     sb_lists_save.add_argument("--risk", nargs="+", help="Risk tolerance(s)")
     sb_lists_save.add_argument("--stage", nargs="+", help="Life stage(s)")
@@ -238,7 +312,11 @@ def main(argv: list[str] | None = None) -> None:
     sb_lists_save.add_argument("--contacted-after", help="Contacted after date (YYYY-MM-DD)")
     sb_lists_save.add_argument("--contacted-before", help="Contacted before date (YYYY-MM-DD)")
     sb_lists_save.add_argument("--search", help="Search text")
-    sb_lists_save.add_argument("--sort-by", choices=["account_value", "age", "last_name", "last_interaction_date"], default="account_value")
+    sb_lists_save.add_argument(
+        "--sort-by",
+        choices=["account_value", "age", "last_name", "last_interaction_date"],
+        default="account_value",
+    )
     sb_lists_save.add_argument("--sort-dir", choices=["asc", "desc"], default="desc")
     sb_lists_save.add_argument("--limit", type=int, default=50, help="Max results")
 
@@ -251,7 +329,9 @@ def main(argv: list[str] | None = None) -> None:
     sb_reports = sandbox_sub.add_parser("reports", help="Manage Salesforce Reports")
     reports_sub = sb_reports.add_subparsers(dest="reports_command")
 
-    sb_reports_save = reports_sub.add_parser("save", help="Save compound filters as a Salesforce Report")
+    sb_reports_save = reports_sub.add_parser(
+        "save", help="Save compound filters as a Salesforce Report"
+    )
     sb_reports_save.add_argument("--name", required=True, help="Report name")
     sb_reports_save.add_argument("--risk", nargs="+", help="Risk tolerance(s)")
     sb_reports_save.add_argument("--stage", nargs="+", help="Life stage(s)")
@@ -263,7 +343,11 @@ def main(argv: list[str] | None = None) -> None:
     sb_reports_save.add_argument("--contacted-after", help="Contacted after date (YYYY-MM-DD)")
     sb_reports_save.add_argument("--contacted-before", help="Contacted before date (YYYY-MM-DD)")
     sb_reports_save.add_argument("--search", help="Search text")
-    sb_reports_save.add_argument("--sort-by", choices=["account_value", "age", "last_name", "last_interaction_date"], default="account_value")
+    sb_reports_save.add_argument(
+        "--sort-by",
+        choices=["account_value", "age", "last_name", "last_interaction_date"],
+        default="account_value",
+    )
     sb_reports_save.add_argument("--sort-dir", choices=["asc", "desc"], default="desc")
     sb_reports_save.add_argument("--limit", type=int, default=50, help="Max results")
 
@@ -280,7 +364,9 @@ def main(argv: list[str] | None = None) -> None:
     sb_tasks_create.add_argument("--client", required=True, help="Client name (fuzzy matched)")
     sb_tasks_create.add_argument("--subject", required=True, help="Task subject")
     sb_tasks_create.add_argument("--due", help="Due date (YYYY-MM-DD, default: 7 days from today)")
-    sb_tasks_create.add_argument("--priority", choices=["High", "Normal", "Low"], default="Normal", help="Task priority")
+    sb_tasks_create.add_argument(
+        "--priority", choices=["High", "Normal", "Low"], default="Normal", help="Task priority"
+    )
 
     sb_tasks_show = tasks_sub.add_parser("show", help="Show open tasks")
     sb_tasks_show.add_argument("--overdue", action="store_true", help="Show only overdue tasks")
@@ -294,25 +380,42 @@ def main(argv: list[str] | None = None) -> None:
     sb_log = sandbox_sub.add_parser("log", help="Log a completed activity")
     sb_log.add_argument("--client", required=True, help="Client name (fuzzy matched)")
     sb_log.add_argument("--subject", required=True, help="Activity description")
-    sb_log.add_argument("--type", required=True, choices=["call", "meeting", "email", "other"], dest="activity_type", help="Activity type")
-    sb_log.add_argument("--date", dest="activity_date", help="Activity date (YYYY-MM-DD, default: today)")
+    sb_log.add_argument(
+        "--type",
+        required=True,
+        choices=["call", "meeting", "email", "other"],
+        dest="activity_type",
+        help="Activity type",
+    )
+    sb_log.add_argument(
+        "--date", dest="activity_date", help="Activity date (YYYY-MM-DD, default: today)"
+    )
 
     # Outreach queue (022-sfdc-task-logging)
     sb_outreach = sandbox_sub.add_parser("outreach", help="Generate outreach queue")
-    sb_outreach.add_argument("--days", type=int, required=True, help="Min days since last contact (0 = all)")
+    sb_outreach.add_argument(
+        "--days", type=int, required=True, help="Min days since last contact (0 = all)"
+    )
     sb_outreach.add_argument("--min-value", type=float, default=0, help="Min account value")
-    sb_outreach.add_argument("--create-tasks", action="store_true", help="Auto-create follow-up tasks")
+    sb_outreach.add_argument(
+        "--create-tasks", action="store_true", help="Auto-create follow-up tasks"
+    )
 
     # Natural language query
     sb_ask = sandbox_sub.add_parser("ask", help="Query clients in plain English")
     sb_ask.add_argument("query", help="Natural language query (e.g., 'top 50 clients under 50')")
-    sb_ask.add_argument("--yes", action="store_true", help="Skip confirmation for low-confidence interpretations")
-    sb_ask.add_argument("--save-as", dest="save_as", help="Save NL-interpreted filters as a Salesforce List View")
+    sb_ask.add_argument(
+        "--yes", action="store_true", help="Skip confirmation for low-confidence interpretations"
+    )
+    sb_ask.add_argument(
+        "--save-as", dest="save_as", help="Save NL-interpreted filters as a Salesforce List View"
+    )
 
     # MCP server command
     mcp_parser = subparsers.add_parser("mcp", help="Start the MCP research server")
     mcp_parser.add_argument(
-        "--http", action="store_true",
+        "--http",
+        action="store_true",
         help="Run in HTTP mode (0.0.0.0:8000) instead of stdio",
     )
 
@@ -403,15 +506,23 @@ def cmd_health() -> None:
 
         audit = AuditLogger(conn)
         audit.log("startup", "cli", {"version": __version__})
-        audit.log("config_validated", "config", {
-            "mode": settings.trading_mode,
-            "is_live": settings.is_live,
-        })
+        audit.log(
+            "config_validated",
+            "config",
+            {
+                "mode": settings.trading_mode,
+                "is_live": settings.is_live,
+            },
+        )
         audit.log("db_initialized", "db", {"path": settings.db_path})
-        audit.log("migrations_applied", "db", {
-            "applied": applied,
-            "schema_version": version,
-        })
+        audit.log(
+            "migrations_applied",
+            "db",
+            {
+                "applied": applied,
+                "schema_version": version,
+            },
+        )
     except DatabaseError as e:
         print(f"Database: FAIL ({e})")
     except Exception as e:
@@ -425,7 +536,7 @@ def cmd_health() -> None:
 
             last_run = get_last_run(conn)
             if last_run:
-                started = str(last_run['started_at'])[:16]
+                started = str(last_run["started_at"])[:16]
                 print(f"Research Pipeline: OK (last run: {started})")
             else:
                 print("Research Pipeline: OK (no runs yet)")
@@ -434,11 +545,15 @@ def cmd_health() -> None:
             print(f"Research Pipeline: FAIL ({e})")
 
     if audit:
-        audit.log("health_check", "cli", {
-            "config_ok": True,
-            "db_ok": db_ok,
-            "research_ok": research_ok,
-        })
+        audit.log(
+            "health_check",
+            "cli",
+            {
+                "config_ok": True,
+                "db_ok": db_ok,
+                "research_ok": research_ok,
+            },
+        )
 
     if conn:
         close_connection(conn)
@@ -512,7 +627,8 @@ def cmd_watchlist(args: argparse.Namespace) -> None:
                     # Get last signal date
                     last_row = conn.execute(
                         "SELECT MAX(created_at) as last_date FROM research_signal "
-                        "WHERE company_id = ?", (c["id"],)
+                        "WHERE company_id = ?",
+                        (c["id"],),
                     ).fetchone()
                     has_date = last_row and last_row["last_date"]
                     last_date = last_row["last_date"][:10] if has_date else "never"
@@ -539,9 +655,15 @@ def cmd_investors(args: argparse.Namespace) -> None:
             try:
                 investor_id = add_investor(conn, args.name, args.cik)
                 print(f'Added "{args.name}" (CIK: {args.cik}) to investor tracking')
-                audit.log("investor_add", "cli", {
-                    "name": args.name, "cik": args.cik, "investor_id": investor_id,
-                })
+                audit.log(
+                    "investor_add",
+                    "cli",
+                    {
+                        "name": args.name,
+                        "cik": args.cik,
+                        "investor_id": investor_id,
+                    },
+                )
             except ValueError as e:
                 print(f"Error: {e}")
                 sys.exit(1)
@@ -561,8 +683,7 @@ def cmd_investors(args: argparse.Namespace) -> None:
             print()
             if not investors:
                 print(
-                    "  No investors tracked. "
-                    'Add one with: finance-agent investors add "Name" CIK'
+                    '  No investors tracked. Add one with: finance-agent investors add "Name" CIK'
                 )
             else:
                 for inv in investors:
@@ -570,11 +691,11 @@ def cmd_investors(args: argparse.Namespace) -> None:
                     last_row = conn.execute(
                         "SELECT MAX(published_at) as last_date FROM source_document "
                         "WHERE source_type = 'holdings_13f' AND metadata_json LIKE ?",
-                        (f'%{inv["cik"]}%',),
+                        (f"%{inv['cik']}%",),
                     ).fetchone()
                     has_date = last_row and last_row["last_date"]
                     last_date = last_row["last_date"][:10] if has_date else "never"
-                    print(f'  {inv["name"]:<25}CIK: {inv["cik"]}    last 13F: {last_date}')
+                    print(f"  {inv['name']:<25}CIK: {inv['cik']}    last 13F: {last_date}")
         else:
             print("Usage: finance-agent investors {add|remove|list}")
             sys.exit(1)
@@ -639,8 +760,7 @@ def _show_research_status(conn: sqlite3.Connection, settings: Settings) -> None:
     ).fetchone()["cnt"]
 
     print(
-        f"Documents: {total_docs} total "
-        f"({analyzed} analyzed, {pending} pending, {failed} failed)"
+        f"Documents: {total_docs} total ({analyzed} analyzed, {pending} pending, {failed} failed)"
     )
     print(f"Signals: {signal_count} total across {company_count} companies")
     print()
@@ -748,11 +868,13 @@ def cmd_profile(args: argparse.Namespace) -> None:
         # Compute overall sentiment from sentiment signals
         sentiment_signals = [s for s in signals if s["signal_type"] == "sentiment"]
         bullish = sum(
-            1 for s in sentiment_signals
+            1
+            for s in sentiment_signals
             if any(w in str(s.get("summary") or "").lower() for w in ["bullish", "grew", "beat"])
         )
         bearish = sum(
-            1 for s in sentiment_signals
+            1
+            for s in sentiment_signals
             if any(w in str(s.get("summary") or "").lower() for w in ["bearish", "decline", "miss"])
         )
         if bullish > bearish:
@@ -846,7 +968,9 @@ def cmd_pattern(args: argparse.Namespace) -> None:
         elif args.pattern_command == "schedule":
             _pattern_schedule(args)
         else:
-            print("Usage: finance-agent pattern {describe|backtest|paper-trade|list|show|compare|retire|ab-test|export|scan|alerts|auto-execute|dashboard|perf|schedule}")
+            print(
+                "Usage: finance-agent pattern {describe|backtest|paper-trade|list|show|compare|retire|ab-test|export|scan|alerts|auto-execute|dashboard|perf|schedule}"
+            )
             sys.exit(1)
     finally:
         close_connection(conn)
@@ -905,7 +1029,9 @@ def _pattern_describe(
         print("Exit Criteria:")
         print(f"  {rule_set.exit_criteria.description}")
         print(f"  Close at {rule_set.exit_criteria.profit_target_pct}% premium profit")
-        roll_dte = rule_set.action.expiration_days - (rule_set.exit_criteria.max_hold_days or rule_set.action.expiration_days)
+        roll_dte = rule_set.action.expiration_days - (
+            rule_set.exit_criteria.max_hold_days or rule_set.action.expiration_days
+        )
         if roll_dte > 0:
             print(f"  Roll at {roll_dte} DTE")
         print(f"  Accept assignment if ITM at expiration")
@@ -928,7 +1054,10 @@ def _pattern_describe(
         print()
         print("Action:")
         print(f"  {rule_set.action.description}")
-        if "call" in rule_set.action.action_type.value or "put" in rule_set.action.action_type.value:
+        if (
+            "call" in rule_set.action.action_type.value
+            or "put" in rule_set.action.action_type.value
+        ):
             print(f"  Strike: {rule_set.action.strike_strategy.value}")
             print(f"  Expiration: {rule_set.action.expiration_days} days")
         print()
@@ -962,11 +1091,15 @@ def _pattern_describe(
     print(f"\nPattern saved as #{pattern_id} (status: draft)")
 
     event_name = "covered_call_described" if is_covered_call else "pattern_created"
-    audit.log(event_name, "pattern_lab", {
-        "pattern_id": pattern_id,
-        "name": result.suggested_name,
-        "is_covered_call": is_covered_call,
-    })
+    audit.log(
+        event_name,
+        "pattern_lab",
+        {
+            "pattern_id": pattern_id,
+            "name": result.suggested_name,
+            "is_covered_call": is_covered_call,
+        },
+    )
 
 
 def _pattern_backtest(
@@ -996,16 +1129,19 @@ def _pattern_backtest(
     if not tickers:
         # Use watchlist tickers as default
         from finance_agent.data.watchlist import list_companies
+
         companies = list_companies(conn)
         tickers = [c["ticker"] for c in companies]
         if not tickers:
-            print("Error: No tickers specified and watchlist is empty. Use --tickers or add to watchlist.")
+            print(
+                "Error: No tickers specified and watchlist is empty. Use --tickers or add to watchlist."
+            )
             sys.exit(1)
 
     rule_set = RuleSet.model_validate_json(pattern["rule_set_json"])
 
     # Validate mutually exclusive event flags
-    if getattr(args, 'events', None) and getattr(args, 'events_file', None):
+    if getattr(args, "events", None) and getattr(args, "events_file", None):
         print("Error: --events and --events-file are mutually exclusive. Use one or the other.")
         sys.exit(1)
 
@@ -1024,8 +1160,13 @@ def _pattern_backtest(
     all_bars: dict[str, list[dict]] = {}
     for ticker in tickers:
         bars = fetch_and_cache_bars(
-            conn, ticker, start_date, end_date, "day",
-            settings.active_api_key, settings.active_secret_key,
+            conn,
+            ticker,
+            start_date,
+            end_date,
+            "day",
+            settings.active_api_key,
+            settings.active_secret_key,
         )
         if bars:
             all_bars[ticker] = bars
@@ -1072,7 +1213,9 @@ def _run_standard_backtest(
     print(f"  Triggers: {report.trigger_count}")
     print(f"  Trades: {report.trade_count}")
     if report.trade_count > 0:
-        print(f"  Win rate: {report.win_count}/{report.trade_count} ({report.win_count/report.trade_count*100:.1f}%)")
+        print(
+            f"  Win rate: {report.win_count}/{report.trade_count} ({report.win_count / report.trade_count * 100:.1f}%)"
+        )
         print(f"  Avg return: {report.avg_return_pct:.2f}%")
         print(f"  Total return: {report.total_return_pct:.2f}%")
         print(f"  Max drawdown: {report.max_drawdown_pct:.2f}%")
@@ -1082,22 +1225,30 @@ def _run_standard_backtest(
         print("  No trades triggered")
 
     if report.sample_size_warning:
-        print(f"\n  WARNING: Only {report.trigger_count} triggers — sample too small for statistical significance (need 30+)")
+        print(
+            f"\n  WARNING: Only {report.trigger_count} triggers — sample too small for statistical significance (need 30+)"
+        )
 
     if report.regimes:
         print(f"\nRegime Analysis:")
         for regime in report.regimes:
             print(f"  {regime.start_date} to {regime.end_date}: {regime.label}")
-            print(f"    Win rate: {regime.win_rate*100:.1f}%, Avg return: {regime.avg_return_pct:.2f}%")
+            print(
+                f"    Win rate: {regime.win_rate * 100:.1f}%, Avg return: {regime.avg_return_pct:.2f}%"
+            )
             if regime.explanation:
                 print(f"    Possible explanation: {regime.explanation}")
 
-    audit.log("backtest_run", "pattern_lab", {
-        "pattern_id": args.pattern_id,
-        "backtest_id": backtest_id,
-        "trade_count": report.trade_count,
-        "win_rate": report.win_count / report.trade_count if report.trade_count > 0 else 0,
-    })
+    audit.log(
+        "backtest_run",
+        "pattern_lab",
+        {
+            "pattern_id": args.pattern_id,
+            "backtest_id": backtest_id,
+            "trade_count": report.trade_count,
+            "win_rate": report.win_count / report.trade_count if report.trade_count > 0 else 0,
+        },
+    )
 
 
 def _build_event_config(
@@ -1170,13 +1321,29 @@ def _run_news_dip_backtest(
 
     if is_multi_ticker:
         _run_multi_ticker_news_dip(
-            conn, audit, args, rule_set, all_bars, tickers,
-            start_date, end_date, event_config, events_source,
+            conn,
+            audit,
+            args,
+            rule_set,
+            all_bars,
+            tickers,
+            start_date,
+            end_date,
+            event_config,
+            events_source,
         )
     else:
         _run_single_ticker_news_dip(
-            conn, audit, args, rule_set, all_bars, tickers,
-            start_date, end_date, event_config, events_source,
+            conn,
+            audit,
+            args,
+            rule_set,
+            all_bars,
+            tickers,
+            start_date,
+            end_date,
+            event_config,
+            events_source,
         )
 
 
@@ -1219,9 +1386,13 @@ def _run_single_ticker_news_dip(
         print("═" * 51)
         print()
         print(f"  Events Detected:  {report.trigger_count}  (source: {events_source})")
-        print(f"  Spike Threshold:  {event_config.spike_threshold_pct}%  |  Volume Filter: {event_config.volume_multiple_min}x avg")
+        print(
+            f"  Spike Threshold:  {event_config.spike_threshold_pct}%  |  Volume Filter: {event_config.volume_multiple_min}x avg"
+        )
         if no_entry_count > 0:
-            print(f"  Trades Entered:   {report.trade_count}  ({no_entry_count} events had no qualifying dip)")
+            print(
+                f"  Trades Entered:   {report.trade_count}  ({no_entry_count} events had no qualifying dip)"
+            )
         else:
             print(f"  Trades Entered:   {report.trade_count}")
 
@@ -1248,7 +1419,9 @@ def _run_single_ticker_news_dip(
                 for regime in report.regimes:
                     period = f"{regime.start_date[:7]} – {regime.end_date[:7]}"
                     sign = "+" if regime.avg_return_pct >= 0 else ""
-                    print(f"  {period:<22}{regime.label:<12}{regime.trade_count:<9}{regime.win_rate*100:.1f}%{'':>5}{sign}{regime.avg_return_pct:.1f}%")
+                    print(
+                        f"  {period:<22}{regime.label:<12}{regime.trade_count:<9}{regime.win_rate * 100:.1f}%{'':>5}{sign}{regime.avg_return_pct:.1f}%"
+                    )
             elif report.trade_count >= 10:
                 print()
                 print("  ─── REGIME ANALYSIS ───────────────────────────")
@@ -1271,7 +1444,9 @@ def _run_single_ticker_news_dip(
                         action_str = f"{trade.action_type} ({strike}, {exp}d) [est]"
                     else:
                         action_str = f"{trade.action_type} ({strike}, {exp}d)"
-                print(f"  {i:<4}{trade.trigger_date:<13}{trade.entry_date:<13}{trade.exit_date:<13}{ret_sign}{trade.return_pct:.1f}%{'':>3}{action_str}")
+                print(
+                    f"  {i:<4}{trade.trigger_date:<13}{trade.entry_date:<13}{trade.exit_date:<13}{ret_sign}{trade.return_pct:.1f}%{'':>3}{action_str}"
+                )
         else:
             if report.trigger_count == 0:
                 print()
@@ -1286,25 +1461,33 @@ def _run_single_ticker_news_dip(
             print("  ─── NO-ENTRY EVENTS ────────────────────────────")
             print(f"  {'Date':<13}{'Spike':<9}{'Volume':<9}Reason")
             for ne in no_entry_events:
-                print(f"  {ne['date']:<13}+{ne['spike_pct']:.1f}%{'':>3}{ne['volume_multiple']:.1f}x{'':>4}{ne['reason']}")
+                print(
+                    f"  {ne['date']:<13}+{ne['spike_pct']:.1f}%{'':>3}{ne['volume_multiple']:.1f}x{'':>4}{ne['reason']}"
+                )
 
         if report.sample_size_warning and report.trade_count > 0:
             print()
-            print(f"  Warning: Only {report.trade_count} trades — results may not be statistically meaningful.")
+            print(
+                f"  Warning: Only {report.trade_count} trades — results may not be statistically meaningful."
+            )
 
         if report.trade_count > 0 and report.trade_count < 10 and report.regimes:
             print(f"  Warning: Fewer than 10 trades — regime analysis may be unreliable.")
 
         print("═" * 51)
 
-        audit.log("news_dip_backtested", "pattern_lab", {
-            "pattern_id": args.pattern_id,
-            "backtest_id": backtest_id,
-            "ticker": ticker,
-            "events_detected": report.trigger_count,
-            "trades_entered": report.trade_count,
-            "events_source": events_source,
-        })
+        audit.log(
+            "news_dip_backtested",
+            "pattern_lab",
+            {
+                "pattern_id": args.pattern_id,
+                "backtest_id": backtest_id,
+                "ticker": ticker,
+                "events_detected": report.trigger_count,
+                "trades_entered": report.trade_count,
+                "events_source": events_source,
+            },
+        )
 
 
 def _run_multi_ticker_news_dip(
@@ -1379,7 +1562,9 @@ def _run_multi_ticker_news_dip(
                 period = f"{regime.start_date[:7]} to {regime.end_date[:7]}"
                 sign = "+" if regime.avg_return_pct >= 0 else ""
                 strength = regime.label.capitalize()
-                print(f"  {period}: {strength} (win rate {regime.win_rate*100:.1f}%, avg {sign}{regime.avg_return_pct:.1f}%, {regime.trade_count} trades)")
+                print(
+                    f"  {period}: {strength} (win rate {regime.win_rate * 100:.1f}%, avg {sign}{regime.avg_return_pct:.1f}%, {regime.trade_count} trades)"
+                )
     else:
         print()
         print("  No qualifying events detected across any ticker.")
@@ -1401,14 +1586,18 @@ def _run_multi_ticker_news_dip(
 
     print("═" * 51)
 
-    audit.log("multi_ticker_backtested", "pattern_lab", {
-        "pattern_id": args.pattern_id,
-        "backtest_id": backtest_id,
-        "tickers": tickers,
-        "events_detected": report.trigger_count,
-        "trades_entered": report.trade_count,
-        "events_source": events_source,
-    })
+    audit.log(
+        "multi_ticker_backtested",
+        "pattern_lab",
+        {
+            "pattern_id": args.pattern_id,
+            "backtest_id": backtest_id,
+            "tickers": tickers,
+            "events_detected": report.trigger_count,
+            "trades_entered": report.trade_count,
+            "events_source": events_source,
+        },
+    )
 
 
 def _run_covered_call_backtest(
@@ -1449,7 +1638,9 @@ def _run_covered_call_backtest(
             trade_count=report.cycle_count,
             win_count=report.cycle_count - report.assignment_count,
             total_return_pct=report.covered_call_return_pct,
-            avg_return_pct=report.covered_call_return_pct / report.cycle_count if report.cycle_count > 0 else 0.0,
+            avg_return_pct=report.covered_call_return_pct / report.cycle_count
+            if report.cycle_count > 0
+            else 0.0,
             max_drawdown_pct=0.0,
             sharpe_ratio=None,
             sample_size_warning=report.sample_size_warning,
@@ -1469,18 +1660,28 @@ def _run_covered_call_backtest(
         print(f"  Monthly Cycles: {report.cycle_count}")
         if report.cycle_count > 0:
             avg_per_share = report.avg_premium_per_cycle / args.shares if args.shares > 0 else 0
-            print(f"  Avg Premium/Month: ${report.avg_premium_per_cycle:,.2f} (${avg_per_share:.2f}/share)")
+            print(
+                f"  Avg Premium/Month: ${report.avg_premium_per_cycle:,.2f} (${avg_per_share:.2f}/share)"
+            )
         print(f"  Total Premium Collected: ${report.total_premium_collected:,.2f}")
         print(f"  Annualized Income Yield: {report.annualized_income_yield_pct:.1f}%")
         print()
-        print(f"  Assignment Events: {report.assignment_count} of {report.cycle_count} cycles ({report.assignment_frequency_pct:.1f}%)")
+        print(
+            f"  Assignment Events: {report.assignment_count} of {report.cycle_count} cycles ({report.assignment_frequency_pct:.1f}%)"
+        )
         print(f"  Cycles Closed Early (profit target): {report.closed_early_count}")
         print(f"  Cycles Rolled: {report.rolled_count}")
         print(f"  Cycles Expired Worthless: {report.expired_worthless_count}")
         print()
-        print(f"  Buy-and-Hold Return: {'+' if report.buy_and_hold_return_pct >= 0 else ''}{report.buy_and_hold_return_pct:.1f}%")
-        print(f"  Covered Call Return: {'+' if report.covered_call_return_pct >= 0 else ''}{report.covered_call_return_pct:.1f}% (stock gain + premium - capped upside)")
-        print(f"  Capped Upside Cost: -${report.capped_upside_cost:,.2f} (forfeited gains from assignment)")
+        print(
+            f"  Buy-and-Hold Return: {'+' if report.buy_and_hold_return_pct >= 0 else ''}{report.buy_and_hold_return_pct:.1f}%"
+        )
+        print(
+            f"  Covered Call Return: {'+' if report.covered_call_return_pct >= 0 else ''}{report.covered_call_return_pct:.1f}% (stock gain + premium - capped upside)"
+        )
+        print(
+            f"  Capped Upside Cost: -${report.capped_upside_cost:,.2f} (forfeited gains from assignment)"
+        )
 
         # Month-by-month breakdown
         if report.cycles:
@@ -1489,7 +1690,10 @@ def _run_covered_call_backtest(
             for cycle in report.cycles:
                 stock_chg = ""
                 if cycle.stock_price_at_exit and cycle.stock_entry_price:
-                    chg = ((cycle.stock_price_at_exit - cycle.stock_entry_price) / cycle.stock_entry_price) * 100
+                    chg = (
+                        (cycle.stock_price_at_exit - cycle.stock_entry_price)
+                        / cycle.stock_entry_price
+                    ) * 100
                     stock_chg = f"Stock: {'+' if chg >= 0 else ''}{chg:.1f}%"
                 outcome = cycle.outcome or "open"
                 pricing_tag = ""
@@ -1498,22 +1702,32 @@ def _run_covered_call_backtest(
                     pricing_tag = f" | {symbol} (real)"
                 elif getattr(cycle, "pricing", None) == "estimated":
                     pricing_tag = " | [est]"
-                print(f"    {cycle.cycle_start_date}  | Premium: ${cycle.call_premium:,.2f} | {stock_chg} | Outcome: {outcome}{pricing_tag}")
+                print(
+                    f"    {cycle.cycle_start_date}  | Premium: ${cycle.call_premium:,.2f} | {stock_chg} | Outcome: {outcome}{pricing_tag}"
+                )
 
         if report.sample_size_warning:
-            print(f"\n  WARNING: Only {report.cycle_count} cycles — fewer than {6} needed for meaningful income estimation")
+            print(
+                f"\n  WARNING: Only {report.cycle_count} cycles — fewer than {6} needed for meaningful income estimation"
+            )
 
         print()
-        print("  WARNING: Premium estimates use historical volatility approximation (not actual option prices)")
+        print(
+            "  WARNING: Premium estimates use historical volatility approximation (not actual option prices)"
+        )
 
-        audit.log("covered_call_backtested", "pattern_lab", {
-            "pattern_id": args.pattern_id,
-            "backtest_id": backtest_id,
-            "ticker": ticker,
-            "cycle_count": report.cycle_count,
-            "total_premium": report.total_premium_collected,
-            "annualized_yield": report.annualized_income_yield_pct,
-        })
+        audit.log(
+            "covered_call_backtested",
+            "pattern_lab",
+            {
+                "pattern_id": args.pattern_id,
+                "backtest_id": backtest_id,
+                "ticker": ticker,
+                "cycle_count": report.cycle_count,
+                "total_premium": report.total_premium_collected,
+                "annualized_yield": report.annualized_income_yield_pct,
+            },
+        )
 
 
 def _pattern_paper_trade(
@@ -1523,7 +1737,11 @@ def _pattern_paper_trade(
     args: argparse.Namespace,
 ) -> None:
     """Activate a pattern for paper trading."""
-    from finance_agent.patterns.executor import CoveredCallMonitor, NewsPatternMonitor, PatternMonitor
+    from finance_agent.patterns.executor import (
+        CoveredCallMonitor,
+        NewsPatternMonitor,
+        PatternMonitor,
+    )
     from finance_agent.patterns.models import RuleSet
     from finance_agent.patterns.storage import get_pattern, update_pattern_status
 
@@ -1533,7 +1751,9 @@ def _pattern_paper_trade(
         sys.exit(1)
 
     if pattern["status"] not in ("backtested", "paper_trading"):
-        print(f"Error: Pattern must be backtested before paper trading (current status: {pattern['status']})")
+        print(
+            f"Error: Pattern must be backtested before paper trading (current status: {pattern['status']})"
+        )
         sys.exit(1)
 
     tickers = args.tickers.split(",") if args.tickers else None
@@ -1561,19 +1781,31 @@ def _pattern_paper_trade(
     print()
     print("Monitoring for triggers... (Ctrl+C to stop)")
 
-    audit.log("paper_trade_started", "pattern_lab", {
-        "pattern_id": args.pattern_id,
-        "auto_approve": args.auto_approve,
-        "is_covered_call": is_covered_call,
-    })
+    audit.log(
+        "paper_trade_started",
+        "pattern_lab",
+        {
+            "pattern_id": args.pattern_id,
+            "auto_approve": args.auto_approve,
+            "is_covered_call": is_covered_call,
+        },
+    )
 
     if is_covered_call:
         shares = getattr(args, "shares", 100)
         monitor = CoveredCallMonitor(
-            conn, audit, settings, args.pattern_id, tickers, args.auto_approve, shares=shares,
+            conn,
+            audit,
+            settings,
+            args.pattern_id,
+            tickers,
+            args.auto_approve,
+            shares=shares,
         )
     elif is_qualitative:
-        monitor = NewsPatternMonitor(conn, audit, settings, args.pattern_id, tickers, auto_approve=False)
+        monitor = NewsPatternMonitor(
+            conn, audit, settings, args.pattern_id, tickers, auto_approve=False
+        )
     else:
         monitor = PatternMonitor(conn, audit, settings, args.pattern_id, tickers, args.auto_approve)
 
@@ -1585,18 +1817,22 @@ def _pattern_paper_trade(
 
 def _pattern_list(conn: sqlite3.Connection, args: argparse.Namespace) -> None:
     """List all patterns."""
-    from finance_agent.patterns.storage import get_backtest_results, get_paper_trade_summary, list_patterns
+    from finance_agent.patterns.storage import (
+        get_backtest_results,
+        get_paper_trade_summary,
+        list_patterns,
+    )
 
     patterns = list_patterns(conn, status=args.status)
 
     if not patterns:
-        print("No patterns found. Create one with: finance-agent pattern describe \"<description>\"")
+        print('No patterns found. Create one with: finance-agent pattern describe "<description>"')
         return
 
     print(f"Patterns ({len(patterns)}):")
     print()
     print(f"  {'ID':<5}{'Name':<30}{'Status':<15}{'Win Rate':<12}{'P&L':<10}")
-    print(f"  {'─'*5}{'─'*30}{'─'*15}{'─'*12}{'─'*10}")
+    print(f"  {'─' * 5}{'─' * 30}{'─' * 15}{'─' * 12}{'─' * 10}")
 
     for p in patterns:
         win_rate = ""
@@ -1655,8 +1891,10 @@ def _pattern_show(conn: sqlite3.Connection, pattern_id: int) -> None:
         print(f"\nBacktest Results ({len(backtests)}):")
         for bt in backtests:
             wr = bt["win_count"] / bt["trade_count"] * 100 if bt["trade_count"] > 0 else 0
-            print(f"  [{bt['created_at'][:10]}] {bt['date_range_start']} to {bt['date_range_end']}: "
-                  f"{bt['trade_count']} trades, {wr:.0f}% win rate, {bt['avg_return_pct']:.2f}% avg return")
+            print(
+                f"  [{bt['created_at'][:10]}] {bt['date_range_start']} to {bt['date_range_end']}: "
+                f"{bt['trade_count']} trades, {wr:.0f}% win rate, {bt['avg_return_pct']:.2f}% avg return"
+            )
 
     # Paper trades
     trades = get_paper_trades(conn, pattern_id)
@@ -1664,8 +1902,10 @@ def _pattern_show(conn: sqlite3.Connection, pattern_id: int) -> None:
         print(f"\nPaper Trades ({len(trades)}):")
         for t in trades:
             pnl_str = f"${t['pnl']:.2f}" if t["pnl"] is not None else "open"
-            print(f"  [{t['proposed_at'][:10]}] {t['ticker']} {t['direction']} {t['quantity']}x "
-                  f"({t['status']}) P&L: {pnl_str}")
+            print(
+                f"  [{t['proposed_at'][:10]}] {t['ticker']} {t['direction']} {t['quantity']}x "
+                f"({t['status']}) P&L: {pnl_str}"
+            )
 
 
 def _pattern_compare(conn: sqlite3.Connection, pattern_ids: list[int]) -> None:
@@ -1710,9 +1950,9 @@ def _pattern_compare(conn: sqlite3.Connection, pattern_ids: list[int]) -> None:
     for p, _ in patterns:
         print(f"  {p['name'][:18]:<20}", end="")
     print()
-    print(f"  {'─'*22}", end="")
+    print(f"  {'─' * 22}", end="")
     for _ in patterns:
-        print(f"  {'─'*20}", end="")
+        print(f"  {'─' * 20}", end="")
     print()
 
     if all_covered_calls:
@@ -2003,8 +2243,13 @@ def _pattern_ab_test(
     all_bars: dict[str, list[dict]] = {}
     for ticker in tickers:
         bars = fetch_and_cache_bars(
-            conn, ticker, start_date, end_date, "day",
-            settings.active_api_key, settings.active_secret_key,
+            conn,
+            ticker,
+            start_date,
+            end_date,
+            "day",
+            settings.active_api_key,
+            settings.active_secret_key,
         )
         if bars:
             all_bars[ticker] = bars
@@ -2060,9 +2305,9 @@ def _pattern_ab_test(
     # Multiple comparisons warning for 3+ variants
     n_comparisons = len(result.comparisons)
     if n_comparisons > 1:
-        false_positive_rate = 1 - (0.95 ** n_comparisons)
+        false_positive_rate = 1 - (0.95**n_comparisons)
         print()
-        print(f"  Note: With {n_comparisons} comparisons, ~{false_positive_rate*100:.0f}% chance")
+        print(f"  Note: With {n_comparisons} comparisons, ~{false_positive_rate * 100:.0f}% chance")
         print("  of at least one false positive at p < 0.05.")
 
     # Result section
@@ -2082,12 +2327,16 @@ def _pattern_ab_test(
 
     print("═" * 51)
 
-    audit.log("ab_test_run", "pattern_lab", {
-        "pattern_ids": args.pattern_ids,
-        "tickers": tickers,
-        "best_variant_id": result.best_variant_id,
-        "best_is_significant": result.best_is_significant,
-    })
+    audit.log(
+        "ab_test_run",
+        "pattern_lab",
+        {
+            "pattern_ids": args.pattern_ids,
+            "tickers": tickers,
+            "best_variant_id": result.best_variant_id,
+            "best_is_significant": result.best_is_significant,
+        },
+    )
 
 
 def _pattern_export(
@@ -2120,7 +2369,9 @@ def _pattern_export(
             (backtest_id, args.pattern_id),
         ).fetchone()
         if not row:
-            print(f"Error: Backtest result #{backtest_id} not found for pattern #{args.pattern_id}.")
+            print(
+                f"Error: Backtest result #{backtest_id} not found for pattern #{args.pattern_id}."
+            )
             sys.exit(1)
         backtest_row = dict(row)
     else:
@@ -2130,7 +2381,9 @@ def _pattern_export(
             (args.pattern_id,),
         ).fetchone()
         if not row:
-            print(f"Error: No backtest results found for pattern #{args.pattern_id}. Run a backtest first.")
+            print(
+                f"Error: No backtest results found for pattern #{args.pattern_id}. Run a backtest first."
+            )
             sys.exit(1)
         backtest_row = dict(row)
         backtest_id = backtest_row["id"]
@@ -2150,6 +2403,7 @@ def _pattern_export(
 
     # Write file
     from pathlib import Path
+
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(markdown, encoding="utf-8")
@@ -2205,8 +2459,12 @@ def _pattern_scan(
                 wr = alert.get("pattern_win_rate")
                 wr_str = f"{wr * 100:.1f}%" if wr is not None else "N/A"
 
-                print(f"  #{alert['id']}  {alert['pattern_name']}  |  {alert['ticker']}  |  {alert['trigger_date']}")
-                print(f"      Price: {pct:+.1f}% (${prev:.2f} → ${latest:.2f})  |  Volume: {vol:.1f}x avg")
+                print(
+                    f"  #{alert['id']}  {alert['pattern_name']}  |  {alert['ticker']}  |  {alert['trigger_date']}"
+                )
+                print(
+                    f"      Price: {pct:+.1f}% (${prev:.2f} → ${latest:.2f})  |  Volume: {vol:.1f}x avg"
+                )
                 print(f"      Action: {alert['recommended_action']}  |  Win rate: {wr_str}")
 
                 status_line = f"      Status: {alert['status']}"
@@ -2219,7 +2477,9 @@ def _pattern_scan(
                     status_line += f"  |  AUTO-BLOCKED: {reason}"
                 print(status_line)
         elif result["patterns_evaluated"] == 0:
-            print("\n  No patterns in paper_trading status. Run 'finance-agent pattern paper-trade <id>' first.")
+            print(
+                "\n  No patterns in paper_trading status. Run 'finance-agent pattern paper-trade <id>' first."
+            )
 
     if args.watch:
         print(f"Watching for triggers every {args.watch} minutes. Press Ctrl+C to stop.\n")
@@ -2283,8 +2543,12 @@ def _pattern_alerts(
         if a.get("auto_executed"):
             auto_tag = " [AUTO-EXECUTED]"
 
-        print(f"  #{a['id']}  [{status_tag}]{auto_tag}  {a['pattern_name']}  |  {a['ticker']}  |  {a['trigger_date']}")
-        print(f"       Price: {pct:+.1f}%  |  Volume: {vol:.1f}x  |  Action: {a['recommended_action']}  |  Win rate: {wr_str}")
+        print(
+            f"  #{a['id']}  [{status_tag}]{auto_tag}  {a['pattern_name']}  |  {a['ticker']}  |  {a['trigger_date']}"
+        )
+        print(
+            f"       Price: {pct:+.1f}%  |  Volume: {vol:.1f}x  |  Action: {a['recommended_action']}  |  Win rate: {wr_str}"
+        )
 
 
 def _pattern_auto_execute(
@@ -2310,10 +2574,14 @@ def _pattern_auto_execute(
     action = "enabled" if args.enable else "disabled"
     print(f"Auto-execution {action} for pattern #{args.pattern_id} ({pattern['name']})")
 
-    audit.log("auto_execute_toggle", "pattern_lab", {
-        "pattern_id": args.pattern_id,
-        "enabled": args.enable,
-    })
+    audit.log(
+        "auto_execute_toggle",
+        "pattern_lab",
+        {
+            "pattern_id": args.pattern_id,
+            "enabled": args.enable,
+        },
+    )
 
 
 def _pattern_dashboard(conn: sqlite3.Connection) -> None:
@@ -2437,7 +2705,9 @@ def cmd_sandbox(args: argparse.Namespace) -> None:
     elif sub == "ask":
         _sandbox_ask(args)
     else:
-        print("Usage: finance-agent sandbox {setup|seed|list|view|add|edit|brief|commentary|lists|reports|tasks|log|outreach|ask}")
+        print(
+            "Usage: finance-agent sandbox {setup|seed|list|view|add|edit|brief|commentary|lists|reports|tasks|log|outreach|ask}"
+        )
         sys.exit(1)
 
 
@@ -2535,7 +2805,9 @@ def _sandbox_list(args: argparse.Namespace) -> None:
         return
 
     # Header with age column
-    print(f"\n{'ID':<20} {'Name':<25} {'Age':>4} {'Account Value':>14} {'Risk':<14} {'Life Stage':<16} {'Last Contact':<12}")
+    print(
+        f"\n{'ID':<20} {'Name':<25} {'Age':>4} {'Account Value':>14} {'Risk':<14} {'Life Stage':<16} {'Last Contact':<12}"
+    )
     print("-" * 111)
 
     for c in clients:
@@ -2546,7 +2818,9 @@ def _sandbox_list(args: argparse.Namespace) -> None:
         risk = c["risk_tolerance"]
         stage = c["life_stage"]
         last_contact = c.get("last_interaction_date") or "—"
-        print(f"{cid:<20} {name:<25} {age_str:>4} {value:>14} {risk:<14} {stage:<16} {last_contact:<12}")
+        print(
+            f"{cid:<20} {name:<25} {age_str:>4} {value:>14} {risk:<14} {stage:<16} {last_contact:<12}"
+        )
 
     print(f"\nFilters applied: {filters.describe()}")
     print(f"Showing {len(clients)} clients")
@@ -2561,15 +2835,15 @@ def _sandbox_view(args: argparse.Namespace) -> None:
         print(f"Client {args.client_id} not found. Run 'sandbox list' to see available clients.")
         sys.exit(1)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  Client: {client['first_name']} {client['last_name']}")
     print(f"  SFDC ID: {client['id']}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"  Age:              {client.get('age') or '—'}")
     print(f"  Occupation:       {client.get('occupation') or '—'}")
     print(f"  Email:            {client.get('email') or '—'}")
     print(f"  Phone:            {client.get('phone') or '—'}")
-    acct_val = client.get('account_value')
+    acct_val = client.get("account_value")
     print(f"  Account Value:    ${acct_val:,.2f}" if acct_val else "  Account Value:    —")
     print(f"  Risk Tolerance:   {client.get('risk_tolerance') or '—'}")
     print(f"  Life Stage:       {client.get('life_stage') or '—'}")
@@ -2582,7 +2856,7 @@ def _sandbox_view(args: argparse.Namespace) -> None:
     interactions = client.get("interactions", [])
     if interactions:
         print(f"\n  Interaction History ({len(interactions)} records):")
-        print(f"  {'-'*55}")
+        print(f"  {'-' * 55}")
         for ix in interactions:
             itype = (ix.get("interaction_type") or "").upper()
             print(f"  [{ix['interaction_date']}] {itype}: {ix['summary']}")
@@ -2634,7 +2908,9 @@ def _sandbox_edit(args: argparse.Namespace) -> None:
         updates["notes"] = args.notes
 
     if not updates:
-        print("No fields to update. Use --account-value, --risk, --life-stage, --goals, or --notes.")
+        print(
+            "No fields to update. Use --account-value, --risk, --life-stage, --goals, or --notes."
+        )
         sys.exit(1)
 
     sf = _get_sf()
@@ -2654,10 +2930,10 @@ def _sandbox_brief(args: argparse.Namespace) -> None:
     conn, _, _ = _get_db_and_audit()
     try:
         brief = generate_meeting_brief(sf, args.client_id, db_conn=conn)
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"  Meeting Brief: {brief['client_name']}")
         print(f"  Generated: {brief['generated_at']}")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
         print("## Client Summary\n")
         print(brief["client_summary"])
         print("\n## Portfolio Context\n")
@@ -2687,10 +2963,10 @@ def _sandbox_commentary(args: argparse.Namespace) -> None:
             risk_tolerance=args.risk,
             life_stage=args.stage,
         )
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"  Market Commentary: {result['segment']}")
         print(f"  Generated: {result['generated_at']}")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
         print(result["commentary"])
         if not result["market_data_available"]:
             print("\n⚠ Market data unavailable — run research pipeline first.")
@@ -2733,7 +3009,9 @@ def _sandbox_ask(args: argparse.Namespace) -> None:
     if not result.get("executed"):
         interp = result["interpretation"]
         print(f"\nI interpreted your query as:")
-        print(f"  Filters: {interp['filters'].get('sort_by', 'account_value')} sorted, limit {interp['filters'].get('limit', 50)}")
+        print(
+            f"  Filters: {interp['filters'].get('sort_by', 'account_value')} sorted, limit {interp['filters'].get('limit', 50)}"
+        )
         if interp.get("filter_mapping"):
             print("\n  Filter mapping:")
             for phrase, filt in interp["filter_mapping"].items():
@@ -2757,14 +3035,18 @@ def _sandbox_ask(args: argparse.Namespace) -> None:
         print()
 
     # Results table
-    print(f"{'ID':<20} {'Name':<25} {'Age':>4} {'Account Value':>14} {'Risk':<14} {'Life Stage':<16} {'Last Contact':<12}")
+    print(
+        f"{'ID':<20} {'Name':<25} {'Age':>4} {'Account Value':>14} {'Risk':<14} {'Life Stage':<16} {'Last Contact':<12}"
+    )
     print("-" * 111)
     for c in clients:
         cid = c["id"][:15] + "..."
         name = f"{c['first_name']} {c['last_name']}"[:23]
         age_str = str(c.get("age") or "—")
         value = f"${c['account_value']:,.0f}"
-        print(f"{cid:<20} {name:<25} {age_str:>4} {value:>14} {c['risk_tolerance']:<14} {c['life_stage']:<16} {c.get('last_interaction_date') or '—':<12}")
+        print(
+            f"{cid:<20} {name:<25} {age_str:>4} {value:>14} {c['risk_tolerance']:<14} {c['life_stage']:<16} {c.get('last_interaction_date') or '—':<12}"
+        )
 
     print(f"\nShowing {result['count']} clients matching filters")
 
@@ -2774,7 +3056,9 @@ def _sandbox_ask(args: argparse.Namespace) -> None:
         from finance_agent.sandbox.models import CompoundFilter
         from finance_agent.sandbox.sfdc_listview import create_listview
 
-        raw_filters = result.get("filters_raw") or result.get("interpretation", {}).get("filters", {})
+        raw_filters = result.get("filters_raw") or result.get("interpretation", {}).get(
+            "filters", {}
+        )
         cf = CompoundFilter(**{k: v for k, v in raw_filters.items() if v is not None})
         try:
             lv = create_listview(sf, save_as, cf)
@@ -2928,7 +3212,7 @@ def _sandbox_tasks(args: argparse.Namespace) -> None:
             print(f"Error creating task: {e}")
             sys.exit(1)
 
-        print(f"Task created: \"{result['subject']}\"")
+        print(f'Task created: "{result["subject"]}"')
         print(f"  Client:   {contact['name']} ({contact['id']})")
         print(f"  Due:      {result['due_date']}")
         print(f"  Priority: {result['priority']}")
@@ -2978,18 +3262,18 @@ def _sandbox_tasks(args: argparse.Namespace) -> None:
 
         if result["status"] == "completed":
             print(
-                f"Completed: \"{result['subject']}\" "
+                f'Completed: "{result["subject"]}" '
                 f"({result['client_name']}, was due {result['due_date']})"
             )
         elif result["status"] == "ambiguous":
-            print(f"Multiple tasks match \"{args.subject}\":")
+            print(f'Multiple tasks match "{args.subject}":')
             for m in result["matches"]:
-                print(f"  \"{m['subject']}\" — {m['client_name']} (due {m['due_date']})")
+                print(f'  "{m["subject"]}" — {m["client_name"]} (due {m["due_date"]})')
             print("Please provide a more specific subject.")
         elif result["status"] == "already_completed":
-            print(f"Task \"{result['subject']}\" is already completed.")
+            print(f'Task "{result["subject"]}" is already completed.')
         else:
-            print(f"No open tasks found matching \"{args.subject}\".")
+            print(f'No open tasks found matching "{args.subject}".')
 
     else:
         print("Usage: finance-agent sandbox tasks {create|show|complete}")
@@ -3025,7 +3309,7 @@ def _sandbox_log(args: argparse.Namespace) -> None:
         print(f"Error: {e}")
         sys.exit(1)
 
-    print(f"Activity logged: \"{result['subject']}\" ({result['activity_type']})")
+    print(f'Activity logged: "{result["subject"]}" ({result["activity_type"]})')
     print(f"  Client: {contact['name']} ({contact['id']})")
     print(f"  Date:   {result['activity_date']}")
 
@@ -3062,12 +3346,7 @@ def _sandbox_outreach(args: argparse.Namespace) -> None:
     for c in queue:
         last = c["last_activity_date"] or "Never"
         days_ago = str(c["days_since_contact"]) if c["days_since_contact"] < 9999 else "Never"
-        print(
-            f"{c['name'][:22]:<22} "
-            f"${c['account_value']:>14,.0f}    "
-            f"{last:<14} "
-            f"{days_ago:>8}"
-        )
+        print(f"{c['name'][:22]:<22} ${c['account_value']:>14,.0f}    {last:<14} {days_ago:>8}")
 
     print(f"\n{len(queue)} clients need outreach")
 
@@ -3085,11 +3364,10 @@ def _sandbox_outreach(args: argparse.Namespace) -> None:
                 if skip:
                     print(f"  ⊘ {c['name']} — skipped ({skip['reason']})")
                 else:
-                    print(f"  ✓ {c['name']} — \"Follow-up: No contact in {c['days_since_contact']} days\"")
-            print(
-                f"\n{result['tasks_created']} tasks created, "
-                f"{result['tasks_skipped']} skipped"
-            )
+                    print(
+                        f'  ✓ {c["name"]} — "Follow-up: No contact in {c["days_since_contact"]} days"'
+                    )
+            print(f"\n{result['tasks_created']} tasks created, {result['tasks_skipped']} skipped")
 
 
 def cmd_mcp(args: argparse.Namespace) -> None:
@@ -3101,5 +3379,3 @@ def cmd_mcp(args: argparse.Namespace) -> None:
         mcp.run(transport="http", host="0.0.0.0", port=8000)
     else:
         mcp.run()
-
-

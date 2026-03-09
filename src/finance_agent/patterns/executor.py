@@ -57,6 +57,7 @@ class PatternMonitor:
         if not self.tickers:
             # Use watchlist tickers
             from finance_agent.data.watchlist import list_companies
+
             companies = list_companies(self.conn)
             self.tickers = [c["ticker"] for c in companies]
 
@@ -105,6 +106,7 @@ class PatternMonitor:
 
         # Get last 5 days of data for trigger evaluation
         from datetime import timedelta
+
         end = datetime.now(UTC)
         start = end - timedelta(days=7)
 
@@ -187,11 +189,15 @@ class PatternMonitor:
         if option_details:
             print(f"  Strike: {action.strike_strategy.value}, Exp: {action.expiration_days} days")
 
-        self.audit.log("paper_trade_proposed", "pattern_lab", {
-            "pattern_id": self.pattern_id,
-            "trade_id": trade_id,
-            "ticker": ticker,
-        })
+        self.audit.log(
+            "paper_trade_proposed",
+            "pattern_lab",
+            {
+                "pattern_id": self.pattern_id,
+                "trade_id": trade_id,
+                "ticker": ticker,
+            },
+        )
 
         if self.auto_approve:
             print(f"  Auto-approving trade #{trade_id}...")
@@ -240,12 +246,16 @@ class PatternMonitor:
             update_paper_trade_executed(self.conn, trade_id, str(order.id), entry_price)
             print(f"  Trade #{trade_id} executed: order {order.id}")
 
-            self.audit.log("paper_trade_executed", "pattern_lab", {
-                "trade_id": trade_id,
-                "order_id": str(order.id),
-                "ticker": ticker,
-                "entry_price": entry_price,
-            })
+            self.audit.log(
+                "paper_trade_executed",
+                "pattern_lab",
+                {
+                    "trade_id": trade_id,
+                    "order_id": str(order.id),
+                    "ticker": ticker,
+                    "entry_price": entry_price,
+                },
+            )
         except Exception as e:
             logger.error("Trade execution failed: %s", e)
             print(f"  Trade execution failed: {e}")
@@ -305,14 +315,20 @@ class PatternMonitor:
                 pnl = current_price - entry_price  # Per share/contract
                 update_paper_trade_closed(self.conn, trade["id"], current_price, pnl)
                 now = datetime.now(UTC).strftime("%H:%M:%S")
-                print(f"\n[{now}] CLOSED: {ticker} trade #{trade['id']} — {reason}, P&L: ${pnl:.2f}")
+                print(
+                    f"\n[{now}] CLOSED: {ticker} trade #{trade['id']} — {reason}, P&L: ${pnl:.2f}"
+                )
 
-                self.audit.log("paper_trade_closed", "pattern_lab", {
-                    "trade_id": trade["id"],
-                    "ticker": ticker,
-                    "pnl": pnl,
-                    "reason": reason,
-                })
+                self.audit.log(
+                    "paper_trade_closed",
+                    "pattern_lab",
+                    {
+                        "trade_id": trade["id"],
+                        "ticker": ticker,
+                        "pnl": pnl,
+                        "reason": reason,
+                    },
+                )
 
 
 class CoveredCallMonitor(PatternMonitor):
@@ -344,6 +360,7 @@ class CoveredCallMonitor(PatternMonitor):
         """Main monitoring loop for covered calls."""
         if not self.tickers:
             from finance_agent.data.watchlist import list_companies
+
             companies = list_companies(self.conn)
             self.tickers = [c["ticker"] for c in companies]
 
@@ -370,7 +387,10 @@ class CoveredCallMonitor(PatternMonitor):
             time.sleep(self.poll_interval)
 
     def _find_call_contract(
-        self, ticker: str, strike_pct_otm: float, expiration_days: int,
+        self,
+        ticker: str,
+        strike_pct_otm: float,
+        expiration_days: int,
     ) -> dict | None:
         """Find the nearest matching call contract from the option chain.
 
@@ -432,7 +452,9 @@ class CoveredCallMonitor(PatternMonitor):
 
             if not chain:
                 logger.warning("No option chain data for %s", ticker)
-                return self._estimate_contract(ticker, current_price, target_strike, expiration_days)
+                return self._estimate_contract(
+                    ticker, current_price, target_strike, expiration_days
+                )
 
             # Find closest match
             best_match = None
@@ -465,7 +487,11 @@ class CoveredCallMonitor(PatternMonitor):
             return self._estimate_contract(ticker, current_price, target_strike, expiration_days)
 
     def _estimate_contract(
-        self, ticker: str, current_price: float, target_strike: float, expiration_days: int,
+        self,
+        ticker: str,
+        current_price: float,
+        target_strike: float,
+        expiration_days: int,
     ) -> dict:
         """Fallback: estimate premium when option chain is unavailable."""
         from finance_agent.patterns.option_pricing import estimate_call_premium
@@ -478,6 +504,7 @@ class CoveredCallMonitor(PatternMonitor):
         )
 
         from datetime import timedelta as td
+
         target_expiry = datetime.now(UTC) + td(days=expiration_days)
         return {
             "contract_symbol": f"{ticker}_estimated",
@@ -509,9 +536,13 @@ class CoveredCallMonitor(PatternMonitor):
             return
 
         estimated_premium = contract["mid"] * self.contracts * 100
-        max_profit = estimated_premium + (contract["strike"] - contract["current_price"]) * self.shares
+        max_profit = (
+            estimated_premium + (contract["strike"] - contract["current_price"]) * self.shares
+        )
 
-        print(f"\nPROPOSE: Sell {self.contracts}x {ticker} {contract['expiration']} ${contract['strike']:.0f} Call @ ${contract['mid']:.2f}")
+        print(
+            f"\nPROPOSE: Sell {self.contracts}x {ticker} {contract['expiration']} ${contract['strike']:.0f} Call @ ${contract['mid']:.2f}"
+        )
         print(f"  Estimated premium: ${estimated_premium:,.2f}")
         print(f"  Max profit: ${max_profit:,.2f} (premium + stock gain to strike)")
         if contract.get("estimated"):
@@ -536,13 +567,17 @@ class CoveredCallMonitor(PatternMonitor):
             option_details,
         )
 
-        self.audit.log("covered_call_proposed", "pattern_lab", {
-            "pattern_id": self.pattern_id,
-            "trade_id": trade_id,
-            "ticker": ticker,
-            "strike": contract["strike"],
-            "premium": contract["mid"],
-        })
+        self.audit.log(
+            "covered_call_proposed",
+            "pattern_lab",
+            {
+                "pattern_id": self.pattern_id,
+                "trade_id": trade_id,
+                "ticker": ticker,
+                "strike": contract["strike"],
+                "premium": contract["mid"],
+            },
+        )
 
         if self.auto_approve:
             print(f"  Auto-approving trade #{trade_id}...")
@@ -566,11 +601,15 @@ class CoveredCallMonitor(PatternMonitor):
             premium = contract["mid"]
             update_paper_trade_executed(self.conn, trade_id, "simulated", premium)
             print(f"  Trade #{trade_id} simulated (no real contract available)")
-            self.audit.log("covered_call_sold", "pattern_lab", {
-                "trade_id": trade_id,
-                "ticker": ticker,
-                "simulated": True,
-            })
+            self.audit.log(
+                "covered_call_sold",
+                "pattern_lab",
+                {
+                    "trade_id": trade_id,
+                    "ticker": ticker,
+                    "simulated": True,
+                },
+            )
             return
 
         try:
@@ -597,16 +636,22 @@ class CoveredCallMonitor(PatternMonitor):
                 limit_price=contract["bid"],  # Sell at bid
             )
             order = client.submit_order(order_request)
-            entry_price = float(order.filled_avg_price) if order.filled_avg_price else contract["mid"]
+            entry_price = (
+                float(order.filled_avg_price) if order.filled_avg_price else contract["mid"]
+            )
             update_paper_trade_executed(self.conn, trade_id, str(order.id), entry_price)
             print(f"  Trade #{trade_id} executed: order {order.id}")
 
-            self.audit.log("covered_call_sold", "pattern_lab", {
-                "trade_id": trade_id,
-                "order_id": str(order.id),
-                "ticker": ticker,
-                "premium": entry_price,
-            })
+            self.audit.log(
+                "covered_call_sold",
+                "pattern_lab",
+                {
+                    "trade_id": trade_id,
+                    "order_id": str(order.id),
+                    "ticker": ticker,
+                    "premium": entry_price,
+                },
+            )
         except Exception as e:
             logger.error("Covered call execution failed: %s", e)
             print(f"  Trade execution failed: {e}")
@@ -618,7 +663,9 @@ class CoveredCallMonitor(PatternMonitor):
         open_trades = get_paper_trades(self.conn, self.pattern_id, status="executed")
         exit_criteria = self.rule_set.exit_criteria
         action = self.rule_set.action
-        roll_threshold_dte = action.expiration_days - (exit_criteria.max_hold_days or action.expiration_days)
+        roll_threshold_dte = action.expiration_days - (
+            exit_criteria.max_hold_days or action.expiration_days
+        )
         if roll_threshold_dte <= 0:
             roll_threshold_dte = 21
 
@@ -668,7 +715,9 @@ class CoveredCallMonitor(PatternMonitor):
             if dte <= 1 and current_price >= strike:
                 entry_price = trade.get("entry_price", 0)
                 premium_collected = entry_price * self.contracts * 100 if entry_price else 0
-                stock_gain = (strike - option_details.get("current_price", current_price)) * self.shares
+                stock_gain = (
+                    strike - option_details.get("current_price", current_price)
+                ) * self.shares
                 total_pnl = premium_collected + stock_gain
 
                 update_paper_trade_closed(self.conn, trade["id"], current_price, total_pnl)
@@ -678,12 +727,16 @@ class CoveredCallMonitor(PatternMonitor):
                 print(f"  Stock gain: ${stock_gain:,.2f}")
                 print(f"  Total P&L: ${total_pnl:,.2f}")
 
-                self.audit.log("covered_call_assigned", "pattern_lab", {
-                    "trade_id": trade["id"],
-                    "ticker": ticker,
-                    "strike": strike,
-                    "pnl": total_pnl,
-                })
+                self.audit.log(
+                    "covered_call_assigned",
+                    "pattern_lab",
+                    {
+                        "trade_id": trade["id"],
+                        "ticker": ticker,
+                        "strike": strike,
+                        "pnl": total_pnl,
+                    },
+                )
 
             # Check for roll threshold
             elif 0 < dte <= roll_threshold_dte:
@@ -698,14 +751,20 @@ class CoveredCallMonitor(PatternMonitor):
                     action.expiration_days,
                 )
                 if next_contract:
-                    print(f"  Proposed roll: BUY_TO_CLOSE current, SELL_TO_OPEN {next_contract['contract_symbol']}")
+                    print(
+                        f"  Proposed roll: BUY_TO_CLOSE current, SELL_TO_OPEN {next_contract['contract_symbol']}"
+                    )
                     print(f"  New premium: ${next_contract['mid']:.2f}/share")
 
-                self.audit.log("covered_call_roll_alert", "pattern_lab", {
-                    "trade_id": trade["id"],
-                    "ticker": ticker,
-                    "dte": dte,
-                })
+                self.audit.log(
+                    "covered_call_roll_alert",
+                    "pattern_lab",
+                    {
+                        "trade_id": trade["id"],
+                        "ticker": ticker,
+                        "dte": dte,
+                    },
+                )
 
             # Check for expiration worthless
             elif dte <= 0 and current_price < strike:
@@ -716,11 +775,15 @@ class CoveredCallMonitor(PatternMonitor):
                 print(f"\n[{now_str}] EXPIRED WORTHLESS: {ticker} trade #{trade['id']}")
                 print(f"  Premium kept: ${premium_collected:,.2f}")
 
-                self.audit.log("covered_call_expired", "pattern_lab", {
-                    "trade_id": trade["id"],
-                    "ticker": ticker,
-                    "premium_kept": premium_collected,
-                })
+                self.audit.log(
+                    "covered_call_expired",
+                    "pattern_lab",
+                    {
+                        "trade_id": trade["id"],
+                        "ticker": ticker,
+                        "premium_kept": premium_collected,
+                    },
+                )
 
 
 class NewsPatternMonitor(PatternMonitor):
@@ -748,6 +811,7 @@ class NewsPatternMonitor(PatternMonitor):
         )
 
         from datetime import timedelta
+
         end = datetime.now(UTC)
         start = end - timedelta(days=30)  # Need 20+ days for volume average
 
@@ -806,7 +870,9 @@ class NewsPatternMonitor(PatternMonitor):
             "price_change_pct": price_change_pct,
             "volume": latest.volume,
             "volume_multiple": volume_multiple,
-            "date": latest.timestamp.strftime("%Y-%m-%d") if hasattr(latest.timestamp, "strftime") else str(latest.timestamp)[:10],
+            "date": latest.timestamp.strftime("%Y-%m-%d")
+            if hasattr(latest.timestamp, "strftime")
+            else str(latest.timestamp)[:10],
         }
         return True
 
@@ -820,7 +886,9 @@ class NewsPatternMonitor(PatternMonitor):
         print()
         print("\u2550" * 51)
         print(f"  \u26a1 TRIGGER DETECTED: {ticker}")
-        print(f"  Price: ${trigger['prev_price']:.2f} \u2192 ${trigger['curr_price']:.2f} (+{trigger['price_change_pct']:.1f}%)")
+        print(
+            f"  Price: ${trigger['prev_price']:.2f} \u2192 ${trigger['curr_price']:.2f} (+{trigger['price_change_pct']:.1f}%)"
+        )
         print(f"  Volume: {trigger['volume']:,.0f} ({trigger['volume_multiple']:.1f}x average)")
         print(f"  Date: {trigger['date']}")
         print()
@@ -839,12 +907,16 @@ class NewsPatternMonitor(PatternMonitor):
             # Rejected \u2014 mark as false positive
             now = datetime.now(UTC).strftime("%H:%M:%S")
             print(f"  [{now}] Marked as false positive. Resuming monitoring.")
-            self.audit.log("news_trigger_rejected", "pattern_lab", {
-                "pattern_id": self.pattern_id,
-                "ticker": ticker,
-                "price_change_pct": trigger["price_change_pct"],
-                "volume_multiple": trigger["volume_multiple"],
-            })
+            self.audit.log(
+                "news_trigger_rejected",
+                "pattern_lab",
+                {
+                    "pattern_id": self.pattern_id,
+                    "ticker": ticker,
+                    "price_change_pct": trigger["price_change_pct"],
+                    "volume_multiple": trigger["volume_multiple"],
+                },
+            )
         else:
             # Skip \u2014 continue monitoring
             print("  Skipped. Continuing to monitor.")

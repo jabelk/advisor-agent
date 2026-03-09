@@ -22,6 +22,7 @@ def _now() -> str:
 # Pattern CRUD
 # ---------------------------------------------------------------------------
 
+
 def create_pattern(
     conn: sqlite3.Connection,
     name: str,
@@ -41,9 +42,7 @@ def create_pattern(
 
 def get_pattern(conn: sqlite3.Connection, pattern_id: int) -> dict | None:
     """Get a pattern by ID. Returns None if not found."""
-    row = conn.execute(
-        "SELECT * FROM trading_pattern WHERE id = ?", (pattern_id,)
-    ).fetchone()
+    row = conn.execute("SELECT * FROM trading_pattern WHERE id = ?", (pattern_id,)).fetchone()
     if not row:
         return None
     return dict(row)
@@ -60,9 +59,7 @@ def list_patterns(
             (status,),
         ).fetchall()
     else:
-        rows = conn.execute(
-            "SELECT * FROM trading_pattern ORDER BY created_at DESC"
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM trading_pattern ORDER BY created_at DESC").fetchall()
     return [dict(r) for r in rows]
 
 
@@ -86,6 +83,7 @@ def update_pattern_status(
 # ---------------------------------------------------------------------------
 # Backtest results
 # ---------------------------------------------------------------------------
+
 
 def save_backtest_result(
     conn: sqlite3.Connection,
@@ -184,6 +182,7 @@ def get_backtest_trades(
 # ---------------------------------------------------------------------------
 # Paper trades
 # ---------------------------------------------------------------------------
+
 
 def create_paper_trade(
     conn: sqlite3.Connection,
@@ -291,6 +290,7 @@ def get_paper_trade_summary(
 # Covered call cycles
 # ---------------------------------------------------------------------------
 
+
 def save_covered_call_cycles(
     conn: sqlite3.Connection,
     cycles: list[CoveredCallCycle],
@@ -374,7 +374,9 @@ def get_covered_call_summary(
         "total_premium": row["total_premium"] or 0.0,
         "avg_premium": row["avg_premium"] or 0.0,
         "assignment_count": row["assignment_count"] or 0,
-        "assignment_frequency_pct": (row["assignment_count"] or 0) / total * 100 if total > 0 else 0.0,
+        "assignment_frequency_pct": (row["assignment_count"] or 0) / total * 100
+        if total > 0
+        else 0.0,
         "expired_count": row["expired_count"] or 0,
         "rolled_count": row["rolled_count"] or 0,
         "closed_early_count": row["closed_early_count"] or 0,

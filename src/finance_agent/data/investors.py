@@ -58,8 +58,7 @@ def list_investors(
     """List tracked notable investors."""
     if active_only:
         rows = conn.execute(
-            "SELECT id, name, cik, added_at FROM notable_investor WHERE active = 1 "
-            "ORDER BY name"
+            "SELECT id, name, cik, added_at FROM notable_investor WHERE active = 1 ORDER BY name"
         ).fetchall()
     else:
         rows = conn.execute(

@@ -84,7 +84,9 @@ def add_client(sf: Salesforce, client: dict) -> str:
     """Insert a new Contact in Salesforce. Returns the Contact ID (18-char string)."""
     sfdc_data = _to_sfdc(client)
     # Allow duplicates — sandbox seed data may have similar names
-    result = sf.Contact.create(sfdc_data, headers={"Sforce-Duplicate-Rule-Header": "allowSave=true"})
+    result = sf.Contact.create(
+        sfdc_data, headers={"Sforce-Duplicate-Rule-Header": "allowSave=true"}
+    )
     return result["id"]
 
 
@@ -169,9 +171,7 @@ def list_clients(
     # Recency filter: not contacted in N days (or never contacted)
     if not_contacted_days is not None:
         cutoff = (date.today() - timedelta(days=not_contacted_days)).isoformat()
-        conditions.append(
-            f"(LastActivityDate < {cutoff} OR LastActivityDate = null)"
-        )
+        conditions.append(f"(LastActivityDate < {cutoff} OR LastActivityDate = null)")
 
     # Absolute date range filters on LastActivityDate
     if contacted_after is not None:
@@ -181,9 +181,7 @@ def list_clients(
 
     if search:
         safe = _soql_escape(search)
-        conditions.append(
-            f"(FirstName LIKE '%{safe}%' OR LastName LIKE '%{safe}%')"
-        )
+        conditions.append(f"(FirstName LIKE '%{safe}%' OR LastName LIKE '%{safe}%')")
 
     where = f"WHERE {' AND '.join(conditions)} " if conditions else ""
 
@@ -209,16 +207,18 @@ def list_clients(
         if tasks_data and tasks_data.get("records"):
             last_date = tasks_data["records"][0].get("ActivityDate")
 
-        clients.append({
-            "id": rec["Id"],
-            "first_name": rec.get("FirstName") or "",
-            "last_name": rec.get("LastName") or "",
-            "age": rec.get("Age__c"),
-            "account_value": rec.get("Account_Value__c") or 0,
-            "risk_tolerance": rec.get("Risk_Tolerance__c") or "",
-            "life_stage": rec.get("Life_Stage__c") or "",
-            "last_interaction_date": last_date,
-        })
+        clients.append(
+            {
+                "id": rec["Id"],
+                "first_name": rec.get("FirstName") or "",
+                "last_name": rec.get("LastName") or "",
+                "age": rec.get("Age__c"),
+                "account_value": rec.get("Account_Value__c") or 0,
+                "risk_tolerance": rec.get("Risk_Tolerance__c") or "",
+                "life_stage": rec.get("Life_Stage__c") or "",
+                "last_interaction_date": last_date,
+            }
+        )
     return clients
 
 
@@ -235,9 +235,18 @@ def format_query_results(clients: list[dict], filters: CompoundFilter) -> dict:
 def update_client(sf: Salesforce, client_id: str, updates: dict) -> bool:
     """Update Contact fields. Returns True if successful, False if not found."""
     allowed = {
-        "first_name", "last_name", "age", "occupation", "email", "phone",
-        "account_value", "risk_tolerance", "investment_goals", "life_stage",
-        "household_members", "notes",
+        "first_name",
+        "last_name",
+        "age",
+        "occupation",
+        "email",
+        "phone",
+        "account_value",
+        "risk_tolerance",
+        "investment_goals",
+        "life_stage",
+        "household_members",
+        "notes",
     }
     filtered = {k: v for k, v in updates.items() if k in allowed}
     if not filtered:

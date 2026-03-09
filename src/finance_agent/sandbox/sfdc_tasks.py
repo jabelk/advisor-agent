@@ -45,11 +45,7 @@ def resolve_contact(sf: Salesforce, name: str) -> list[dict]:
     else:
         safe = _soql_escape(name)
         where = f"FirstName LIKE '%{safe}%' OR LastName LIKE '%{safe}%'"
-    soql = (
-        "SELECT Id, FirstName, LastName FROM Contact "
-        f"WHERE {where} "
-        "ORDER BY LastName, FirstName"
-    )
+    soql = f"SELECT Id, FirstName, LastName FROM Contact WHERE {where} ORDER BY LastName, FirstName"
     result = sf.query(soql)
     return [
         {
@@ -107,9 +103,7 @@ def _resolve_contact_name(sf: Salesforce, who_id: str) -> str:
         return "Unknown Contact"
     try:
         safe = _soql_escape(who_id)
-        result = sf.query(
-            f"SELECT FirstName, LastName FROM Contact WHERE Id = '{safe}'"
-        )
+        result = sf.query(f"SELECT FirstName, LastName FROM Contact WHERE Id = '{safe}'")
         if result.get("records"):
             rec = result["records"][0]
             return f"{rec.get('FirstName') or ''} {rec.get('LastName') or ''}".strip()
@@ -159,8 +153,7 @@ def list_tasks(
     # Filter for [advisor-agent]-tagged tasks in Python
     # (Description is a long text area — cannot use LIKE in SOQL)
     records = [
-        r for r in result.get("records", [])
-        if ADVISOR_AGENT_TAG in (r.get("Description") or "")
+        r for r in result.get("records", []) if ADVISOR_AGENT_TAG in (r.get("Description") or "")
     ]
     who_ids = {r["WhoId"] for r in records if r.get("WhoId")}
     name_cache: dict[str, str] = {}
@@ -170,24 +163,24 @@ def list_tasks(
             f"SELECT Id, FirstName, LastName FROM Contact WHERE Id IN ('{ids_str}')"
         )
         for c in contacts_result.get("records", []):
-            name_cache[c["Id"]] = (
-                f"{c.get('FirstName') or ''} {c.get('LastName') or ''}".strip()
-            )
+            name_cache[c["Id"]] = f"{c.get('FirstName') or ''} {c.get('LastName') or ''}".strip()
 
     today = date.today().isoformat()
     tasks = []
     for rec in records:
         due = rec.get("ActivityDate") or ""
-        tasks.append({
-            "task_id": rec["Id"],
-            "subject": rec.get("Subject") or "",
-            "client_name": name_cache.get(rec.get("WhoId", ""), "Unknown Contact"),
-            "client_id": rec.get("WhoId") or "",
-            "due_date": due,
-            "priority": rec.get("Priority") or "Normal",
-            "status": rec.get("Status") or "",
-            "overdue": bool(due and due < today),
-        })
+        tasks.append(
+            {
+                "task_id": rec["Id"],
+                "subject": rec.get("Subject") or "",
+                "client_name": name_cache.get(rec.get("WhoId", ""), "Unknown Contact"),
+                "client_id": rec.get("WhoId") or "",
+                "due_date": due,
+                "priority": rec.get("Priority") or "Normal",
+                "status": rec.get("Status") or "",
+                "overdue": bool(due and due < today),
+            }
+        )
     return tasks
 
 
@@ -214,7 +207,8 @@ def complete_task(sf: Salesforce, subject: str) -> dict:
     )
     completed_result = sf.query(completed_soql)
     completed_matches = [
-        r for r in completed_result.get("records", [])
+        r
+        for r in completed_result.get("records", [])
         if ADVISOR_AGENT_TAG in (r.get("Description") or "")
     ]
 
@@ -226,7 +220,8 @@ def complete_task(sf: Salesforce, subject: str) -> dict:
     )
     open_result = sf.query(open_soql)
     open_matches = [
-        r for r in open_result.get("records", [])
+        r
+        for r in open_result.get("records", [])
         if ADVISOR_AGENT_TAG in (r.get("Description") or "")
     ]
 
@@ -243,12 +238,14 @@ def complete_task(sf: Salesforce, subject: str) -> dict:
     if len(open_matches) > 1:
         matches = []
         for rec in open_matches:
-            matches.append({
-                "task_id": rec["Id"],
-                "subject": rec.get("Subject") or "",
-                "client_name": _resolve_contact_name(sf, rec.get("WhoId", "")),
-                "due_date": rec.get("ActivityDate") or "",
-            })
+            matches.append(
+                {
+                    "task_id": rec["Id"],
+                    "subject": rec.get("Subject") or "",
+                    "client_name": _resolve_contact_name(sf, rec.get("WhoId", "")),
+                    "due_date": rec.get("ActivityDate") or "",
+                }
+            )
         return {"status": "ambiguous", "matches": matches}
 
     # Single match — complete it
@@ -278,14 +275,10 @@ def get_task_summary(sf: Salesforce) -> dict:
     today_str = today.isoformat()
 
     # Description is a long text area — cannot use LIKE in SOQL, filter in Python
-    soql = (
-        "SELECT Id, ActivityDate, Description FROM Task "
-        "WHERE Status != 'Completed'"
-    )
+    soql = "SELECT Id, ActivityDate, Description FROM Task WHERE Status != 'Completed'"
     result = sf.query(soql)
     records = [
-        r for r in result.get("records", [])
-        if ADVISOR_AGENT_TAG in (r.get("Description") or "")
+        r for r in result.get("records", []) if ADVISOR_AGENT_TAG in (r.get("Description") or "")
     ]
 
     total_open = len(records)
@@ -344,9 +337,7 @@ def log_activity(
     if activity_date is None:
         activity_date = date.today().isoformat()
     elif activity_date > date.today().isoformat():
-        raise ValueError(
-            f"Activity date cannot be in the future (got {activity_date})."
-        )
+        raise ValueError(f"Activity date cannot be in the future (got {activity_date}).")
 
     subtype = _ACTIVITY_TYPE_MAP[activity_type]
     task_data: dict = {
@@ -431,13 +422,15 @@ def get_outreach_queue(
                 days_since = 9999
 
         name = f"{rec.get('FirstName') or ''} {rec.get('LastName') or ''}".strip()
-        queue.append({
-            "client_id": rec["Id"],
-            "name": name,
-            "account_value": rec.get("Account_Value__c") or 0,
-            "last_activity_date": last_activity or "",
-            "days_since_contact": days_since,
-        })
+        queue.append(
+            {
+                "client_id": rec["Id"],
+                "name": name,
+                "account_value": rec.get("Account_Value__c") or 0,
+                "last_activity_date": last_activity or "",
+                "days_since_contact": days_since,
+            }
+        )
 
     return queue
 
@@ -476,16 +469,19 @@ def create_outreach_tasks(
             "AND Status != 'Completed'"
         )
         tagged_existing = [
-            r for r in existing.get("records", [])
+            r
+            for r in existing.get("records", [])
             if ADVISOR_AGENT_TAG in (r.get("Description") or "")
         ]
 
         if tagged_existing:
             skipped += 1
-            skipped_reasons.append({
-                "name": contact["name"],
-                "reason": f"existing open task: {tagged_existing[0].get('Subject', '')}",
-            })
+            skipped_reasons.append(
+                {
+                    "name": contact["name"],
+                    "reason": f"existing open task: {tagged_existing[0].get('Subject', '')}",
+                }
+            )
             continue
 
         actual_days = contact["days_since_contact"]

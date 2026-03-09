@@ -34,9 +34,7 @@ def calculate_historical_volatility(
 
     # Log returns
     log_returns = [
-        math.log(closes[i] / closes[i - 1])
-        for i in range(1, len(closes))
-        if closes[i - 1] > 0
+        math.log(closes[i] / closes[i - 1]) for i in range(1, len(closes)) if closes[i - 1] > 0
     ]
 
     if len(log_returns) < 2:
@@ -83,10 +81,9 @@ def estimate_call_premium(
 
     t = days_to_expiration / 365.0
 
-    d1 = (
-        math.log(spot_price / strike_price)
-        + (risk_free_rate + 0.5 * sigma**2) * t
-    ) / (sigma * math.sqrt(t))
+    d1 = (math.log(spot_price / strike_price) + (risk_free_rate + 0.5 * sigma**2) * t) / (
+        sigma * math.sqrt(t)
+    )
 
     d2 = d1 - sigma * math.sqrt(t)
 

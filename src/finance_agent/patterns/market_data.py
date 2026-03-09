@@ -102,17 +102,19 @@ def _fetch_from_alpaca(
     bars = []
     if ticker in bars_response.data:
         for bar in bars_response.data[ticker]:
-            bars.append({
-                "ticker": ticker,
-                "timeframe": timeframe,
-                "bar_timestamp": bar.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "open": float(bar.open),
-                "high": float(bar.high),
-                "low": float(bar.low),
-                "close": float(bar.close),
-                "volume": int(bar.volume),
-                "vwap": float(bar.vwap) if bar.vwap else None,
-            })
+            bars.append(
+                {
+                    "ticker": ticker,
+                    "timeframe": timeframe,
+                    "bar_timestamp": bar.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "open": float(bar.open),
+                    "high": float(bar.high),
+                    "low": float(bar.low),
+                    "close": float(bar.close),
+                    "volume": int(bar.volume),
+                    "vwap": float(bar.vwap) if bar.vwap else None,
+                }
+            )
 
     return bars
 

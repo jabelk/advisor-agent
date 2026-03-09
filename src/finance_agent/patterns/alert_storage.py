@@ -31,9 +31,15 @@ def create_alert(
             "recommended_action, pattern_win_rate, status, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)",
             (
-                pattern_id, pattern_name, ticker, trigger_date,
-                trigger_json, recommended_action, pattern_win_rate,
-                now, now,
+                pattern_id,
+                pattern_name,
+                ticker,
+                trigger_date,
+                trigger_json,
+                recommended_action,
+                pattern_win_rate,
+                now,
+                now,
             ),
         )
         conn.commit()
@@ -52,9 +58,7 @@ def list_alerts(
     days: int = 7,
 ) -> list[dict]:
     """Retrieve alerts with optional filtering, sorted by created_at descending."""
-    conditions: list[str] = [
-        "created_at >= datetime('now', '-' || ? || ' days')"
-    ]
+    conditions: list[str] = ["created_at >= datetime('now', '-' || ? || ' days')"]
     params: list[str | int] = [str(days)]
 
     if status:

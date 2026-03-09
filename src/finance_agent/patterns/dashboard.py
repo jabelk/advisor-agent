@@ -134,19 +134,21 @@ def get_dashboard_data(conn: sqlite3.Connection) -> dict:
         if bt_win_rate is not None and pt_win_rate is not None:
             divergence_warning = abs(bt_win_rate - pt_win_rate) > 0.10
 
-        active_patterns.append({
-            "pattern_id": pid,
-            "pattern_name": pname,
-            "backtest_win_rate": bt_win_rate,
-            "backtest_avg_return": bt_avg_return,
-            "paper_trade_win_rate": pt_win_rate,
-            "paper_trade_count": pt_count,
-            "paper_trade_pnl": pt_pnl,
-            "open_trades": pt_open_count,
-            "alert_count_7d": pat_alert_count,
-            "auto_execute": bool(pat["auto_execute"]),
-            "divergence_warning": divergence_warning,
-        })
+        active_patterns.append(
+            {
+                "pattern_id": pid,
+                "pattern_name": pname,
+                "backtest_win_rate": bt_win_rate,
+                "backtest_avg_return": bt_avg_return,
+                "paper_trade_win_rate": pt_win_rate,
+                "paper_trade_count": pt_count,
+                "paper_trade_pnl": pt_pnl,
+                "open_trades": pt_open_count,
+                "alert_count_7d": pat_alert_count,
+                "auto_execute": bool(pat["auto_execute"]),
+                "divergence_warning": divergence_warning,
+            }
+        )
 
     return {
         "patterns": {
@@ -184,7 +186,7 @@ def format_dashboard(data: dict) -> str:
         lines.append("\u2550" * 19)
         lines.append("")
         lines.append("  No patterns found. Get started with:")
-        lines.append("    finance-agent pattern describe \"<your pattern description>\"")
+        lines.append('    finance-agent pattern describe "<your pattern description>"')
         return "\n".join(lines)
 
     lines.append("Portfolio Dashboard")
@@ -203,7 +205,9 @@ def format_dashboard(data: dict) -> str:
     # Paper trade summary
     pt = data["paper_trades"]
     if pt["closed_trades"] > 0:
-        pnl_str = f"+${pt['total_pnl']:.2f}" if pt["total_pnl"] >= 0 else f"-${abs(pt['total_pnl']):.2f}"
+        pnl_str = (
+            f"+${pt['total_pnl']:.2f}" if pt["total_pnl"] >= 0 else f"-${abs(pt['total_pnl']):.2f}"
+        )
         lines.append("  Paper Trades (all patterns):")
         lines.append(
             f"    Closed: {pt['closed_trades']} trades  |  "
@@ -226,7 +230,9 @@ def format_dashboard(data: dict) -> str:
             count = alerts["by_status"].get(status, 0)
             if count > 0:
                 alert_parts.append(f"{count} {status}")
-        lines.append(f"  Alerts (last 7 days):  {alerts['last_7_days']} total ({', '.join(alert_parts)})")
+        lines.append(
+            f"  Alerts (last 7 days):  {alerts['last_7_days']} total ({', '.join(alert_parts)})"
+        )
     else:
         lines.append("  Alerts (last 7 days):  0")
     lines.append("")
@@ -235,11 +241,21 @@ def format_dashboard(data: dict) -> str:
     active = data["active_patterns"]
     if active:
         lines.append("  Active Patterns:")
-        lines.append(f"  {'ID':<5}{'Name':<24}{'BT Win%':<10}{'PT Win%':<10}{'Trades':<9}{'P&L':<11}{'Alerts'}")
+        lines.append(
+            f"  {'ID':<5}{'Name':<24}{'BT Win%':<10}{'PT Win%':<10}{'Trades':<9}{'P&L':<11}{'Alerts'}"
+        )
         lines.append("  " + "\u2500" * 73)
         for p in active:
-            bt_str = f"{p['backtest_win_rate'] * 100:.1f}%" if p["backtest_win_rate"] is not None else "\u2014"
-            pt_str = f"{p['paper_trade_win_rate'] * 100:.1f}%" if p["paper_trade_win_rate"] is not None else "\u2014"
+            bt_str = (
+                f"{p['backtest_win_rate'] * 100:.1f}%"
+                if p["backtest_win_rate"] is not None
+                else "\u2014"
+            )
+            pt_str = (
+                f"{p['paper_trade_win_rate'] * 100:.1f}%"
+                if p["paper_trade_win_rate"] is not None
+                else "\u2014"
+            )
             pnl = p["paper_trade_pnl"]
             pnl_str = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
             alert_str = str(p["alert_count_7d"])
@@ -254,7 +270,8 @@ def format_dashboard(data: dict) -> str:
 
 
 def get_performance_comparison(
-    conn: sqlite3.Connection, pattern_id: int | None = None,
+    conn: sqlite3.Connection,
+    pattern_id: int | None = None,
 ) -> list[dict]:
     """Compare backtest predictions vs paper trade actuals.
 
@@ -369,34 +386,36 @@ def get_performance_comparison(
             if alert_count["cnt"] == 0:
                 note = f"No triggers in {days_in_pt}+ days \u2014 consider adjusting thresholds"
 
-        comparisons.append({
-            "pattern_id": pid,
-            "pattern_name": pat["name"],
-            "pattern_status": pat["status"],
-            "days_in_paper_trading": days_in_pt,
-            "backtest": {
-                "win_rate": bt_win_rate,
-                "avg_return_pct": bt["avg_return_pct"],
-                "trade_count": bt_trade_count,
-                "total_return_pct": bt["total_return_pct"],
-                "max_drawdown_pct": bt["max_drawdown_pct"],
-                "sharpe_ratio": bt["sharpe_ratio"],
-                "backtest_date": bt["created_at"],
-            },
-            "paper_trading": {
-                "win_rate": pt_win_rate,
-                "avg_return_pct": pt_avg_return,
-                "trade_count": pt_total,
-                "total_pnl": pt_pnl,
-                "open_trades": open_count,
-            },
-            "divergence": {
-                "win_rate_diff_pp": win_rate_diff,
-                "avg_return_diff_pp": avg_return_diff,
-                "warning": warning,
-                "note": note,
-            },
-        })
+        comparisons.append(
+            {
+                "pattern_id": pid,
+                "pattern_name": pat["name"],
+                "pattern_status": pat["status"],
+                "days_in_paper_trading": days_in_pt,
+                "backtest": {
+                    "win_rate": bt_win_rate,
+                    "avg_return_pct": bt["avg_return_pct"],
+                    "trade_count": bt_trade_count,
+                    "total_return_pct": bt["total_return_pct"],
+                    "max_drawdown_pct": bt["max_drawdown_pct"],
+                    "sharpe_ratio": bt["sharpe_ratio"],
+                    "backtest_date": bt["created_at"],
+                },
+                "paper_trading": {
+                    "win_rate": pt_win_rate,
+                    "avg_return_pct": pt_avg_return,
+                    "trade_count": pt_total,
+                    "total_pnl": pt_pnl,
+                    "open_trades": open_count,
+                },
+                "divergence": {
+                    "win_rate_diff_pp": win_rate_diff,
+                    "avg_return_diff_pp": avg_return_diff,
+                    "warning": warning,
+                    "note": note,
+                },
+            }
+        )
 
     return comparisons
 
@@ -435,9 +454,17 @@ def format_performance(comparisons: list[dict], single: bool = False) -> str:
         lines.append(f"  {'Win rate:':<20}{bt_wr:<16}{pt_wr:<18}{div_wr}")
 
         # Avg return
-        bt_ar = f"+{bt['avg_return_pct']:.1f}%" if bt["avg_return_pct"] >= 0 else f"{bt['avg_return_pct']:.1f}%"
+        bt_ar = (
+            f"+{bt['avg_return_pct']:.1f}%"
+            if bt["avg_return_pct"] >= 0
+            else f"{bt['avg_return_pct']:.1f}%"
+        )
         if pt["avg_return_pct"] is not None:
-            pt_ar = f"+{pt['avg_return_pct']:.1f}%" if pt["avg_return_pct"] >= 0 else f"{pt['avg_return_pct']:.1f}%"
+            pt_ar = (
+                f"+{pt['avg_return_pct']:.1f}%"
+                if pt["avg_return_pct"] >= 0
+                else f"{pt['avg_return_pct']:.1f}%"
+            )
         else:
             pt_ar = "\u2014"
         div_ar = ""
@@ -450,8 +477,14 @@ def format_performance(comparisons: list[dict], single: bool = False) -> str:
         lines.append(f"  {'Trade count:':<20}{bt['trade_count']:<16}{pt['trade_count']:<18}")
 
         # Total return
-        bt_tr = f"+{bt['total_return_pct']:.1f}%" if bt["total_return_pct"] >= 0 else f"{bt['total_return_pct']:.1f}%"
-        pt_pnl = f"+${pt['total_pnl']:.2f}" if pt["total_pnl"] >= 0 else f"-${abs(pt['total_pnl']):.2f}"
+        bt_tr = (
+            f"+{bt['total_return_pct']:.1f}%"
+            if bt["total_return_pct"] >= 0
+            else f"{bt['total_return_pct']:.1f}%"
+        )
+        pt_pnl = (
+            f"+${pt['total_pnl']:.2f}" if pt["total_pnl"] >= 0 else f"-${abs(pt['total_pnl']):.2f}"
+        )
         lines.append(f"  {'Total return:':<20}{bt_tr:<16}{pt_pnl:<18}")
 
         # Max drawdown
@@ -463,7 +496,9 @@ def format_performance(comparisons: list[dict], single: bool = False) -> str:
             lines.append("")
             diff = abs(div["win_rate_diff_pp"])
             direction = "exceeds" if div["win_rate_diff_pp"] > 0 else "trails"
-            lines.append(f"  \u26a0\ufe0f Paper trade win rate {direction} backtest by {diff:.0f}pp \u2014 monitor for reversion.")
+            lines.append(
+                f"  \u26a0\ufe0f Paper trade win rate {direction} backtest by {diff:.0f}pp \u2014 monitor for reversion."
+            )
 
         if div["note"]:
             lines.append("")
@@ -475,7 +510,9 @@ def format_performance(comparisons: list[dict], single: bool = False) -> str:
         lines.append("\u2550" * 19)
         lines.append("")
 
-        lines.append(f"  {'#':<4}{'Pattern':<30}{'BT Win%':<10}{'PT Win%':<10}{'Divergence':<13}{'PT P&L'}")
+        lines.append(
+            f"  {'#':<4}{'Pattern':<30}{'BT Win%':<10}{'PT Win%':<10}{'Divergence':<13}{'PT P&L'}"
+        )
         lines.append("  " + "\u2500" * 73)
 
         for c in comparisons:

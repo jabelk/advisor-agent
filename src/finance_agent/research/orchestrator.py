@@ -48,9 +48,7 @@ def _build_sources(settings: Settings, storage: StorageManager) -> dict[str, Bas
     try:
         from finance_agent.data.sources.earningscall_source import EarningsCallSource
 
-        sources["transcripts"] = EarningsCallSource(
-            storage, settings.earningscall_api_key
-        )
+        sources["transcripts"] = EarningsCallSource(storage, settings.earningscall_api_key)
     except ImportError:
         logger.debug("EarningsCall source not available")
 
@@ -114,8 +112,7 @@ def run_research_pipeline(
 
     if not watchlist:
         print(
-            "Warning: No companies on watchlist. "
-            "Add one with: finance-agent watchlist add <TICKER>"
+            "Warning: No companies on watchlist. Add one with: finance-agent watchlist add <TICKER>"
         )
         return
 
@@ -135,11 +132,15 @@ def run_research_pipeline(
 
     # Start ingestion run
     run_id = start_run(conn)
-    audit.log("research_start", "pipeline", {
-        "run_id": run_id,
-        "companies": len(watchlist),
-        "sources": list(available_sources.keys()),
-    })
+    audit.log(
+        "research_start",
+        "pipeline",
+        {
+            "run_id": run_id,
+            "companies": len(watchlist),
+            "sources": list(available_sources.keys()),
+        },
+    )
 
     tickers_str = ", ".join(str(c["ticker"]) for c in watchlist)
     sources_str = ", ".join(available_sources.keys())
@@ -167,8 +168,7 @@ def run_research_pipeline(
         try:
             # Ingest new documents
             watchlist_for_source: list[dict[str, str | int]] = [
-                {k: v for k, v in c.items() if v is not None}
-                for c in watchlist
+                {k: v for k, v in c.items() if v is not None} for c in watchlist
             ]
             documents = source.ingest(conn, watchlist_for_source)
 
@@ -180,9 +180,7 @@ def run_research_pipeline(
                     else:
                         company = None
                     company_id = (
-                        int(company["id"])
-                        if company and company["id"] is not None
-                        else None
+                        int(company["id"]) if company and company["id"] is not None else None
                     )
 
                     content_hash = StorageManager.compute_hash(doc.content)
@@ -218,17 +216,14 @@ def run_research_pipeline(
                             analysis = analyzer.analyze_document(
                                 doc.content, doc.content_type, doc.company_ticker or ""
                             )
-                            signal_count = save_signals(
-                                conn, doc_id, company_id, analysis.signals
-                            )
+                            signal_count = save_signals(conn, doc_id, company_id, analysis.signals)
                             set_document_status(conn, doc_id, "complete")
                             result.signals_generated += signal_count
                             total_signals += signal_count
 
                             ticker_label = doc.company_ticker or "?"
                             print(
-                                f"  {ticker_label}: {doc.title} — "
-                                f"{signal_count} signals generated"
+                                f"  {ticker_label}: {doc.title} — {signal_count} signals generated"
                             )
                         except Exception as e:
                             set_document_status(conn, doc_id, "failed", str(e))
@@ -269,13 +264,17 @@ def run_research_pipeline(
     else:
         complete_run(conn, run_id, total_docs, total_signals, source_stats)
 
-    audit.log("research_complete", "pipeline", {
-        "run_id": run_id,
-        "documents": total_docs,
-        "signals": total_signals,
-        "errors": len(errors),
-        "duration_seconds": round(duration, 1),
-    })
+    audit.log(
+        "research_complete",
+        "pipeline",
+        {
+            "run_id": run_id,
+            "documents": total_docs,
+            "signals": total_signals,
+            "errors": len(errors),
+            "duration_seconds": round(duration, 1),
+        },
+    )
 
     print("Summary:")
     print(f"  Documents: {total_docs} new")

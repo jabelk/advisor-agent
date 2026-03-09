@@ -91,7 +91,9 @@ def run_migrations(conn: sqlite3.Connection, migrations_dir: str) -> int:
 
         logger.info(
             "Applying migration %s (version %d → %d)",
-            sql_file.name, current_version, version,
+            sql_file.name,
+            current_version,
+            version,
         )
         sql = sql_file.read_text()
 
@@ -99,9 +101,7 @@ def run_migrations(conn: sqlite3.Connection, migrations_dir: str) -> int:
         try:
             conn.executescript(sql)
         except sqlite3.Error as e:
-            raise DatabaseError(
-                f"Migration {sql_file.name} failed: {e}"
-            ) from e
+            raise DatabaseError(f"Migration {sql_file.name} failed: {e}") from e
 
         current_version = version
         applied += 1

@@ -84,9 +84,7 @@ class DocumentAnalysis(BaseModel):
     signals: list[ResearchSignalOutput] = Field(
         description="List of research signals extracted from the document"
     )
-    key_takeaways: list[str] = Field(
-        description="Top 3-5 key takeaways from the document"
-    )
+    key_takeaways: list[str] = Field(description="Top 3-5 key takeaways from the document")
     companies_mentioned: list[str] = Field(
         default_factory=list,
         description="Other company tickers mentioned in the document",

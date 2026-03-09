@@ -74,16 +74,18 @@ def detect_spike_events(
             continue
 
         # Event detected
-        events.append(DetectedEvent(
-            date=bar_date,
-            ticker=ticker,
-            price_change_pct=round(price_change_pct, 2),
-            volume_multiple=round(volume_multiple, 2),
-            close_price=bar["close"],
-            high_price=bar["high"],
-            event_label=None,
-            source="proxy",
-        ))
+        events.append(
+            DetectedEvent(
+                date=bar_date,
+                ticker=ticker,
+                price_change_pct=round(price_change_pct, 2),
+                volume_multiple=round(volume_multiple, 2),
+                close_price=bar["close"],
+                high_price=bar["high"],
+                event_label=None,
+                source="proxy",
+            )
+        )
 
         # Set cooldown: suppress for entry window days (default 2 trading bars)
         # We look ahead to find the cooldown end date
@@ -92,7 +94,10 @@ def detect_spike_events(
 
         logger.info(
             "Spike event detected: %s on %s (%.1f%% price change, %.1fx volume)",
-            ticker, bar_date, price_change_pct, volume_multiple,
+            ticker,
+            bar_date,
+            price_change_pct,
+            volume_multiple,
         )
 
     return events
@@ -173,7 +178,9 @@ def parse_events_file(file_path: str) -> list[ManualEvent]:
         events.append(ManualEvent(date=date_str, label=label))
 
     if not events:
-        raise ValueError(f"No valid dates found in {file_path}. Expected one date per line (YYYY-MM-DD).")
+        raise ValueError(
+            f"No valid dates found in {file_path}. Expected one date per line (YYYY-MM-DD)."
+        )
 
     return events
 
@@ -227,15 +234,17 @@ def manual_events_to_detected(
             if prev["close"] > 0:
                 price_change_pct = ((bar["close"] - prev["close"]) / prev["close"]) * 100
 
-        events.append(DetectedEvent(
-            date=bar_date,
-            ticker=ticker,
-            price_change_pct=round(price_change_pct, 2),
-            volume_multiple=round(volume_multiple, 2),
-            close_price=bar["close"],
-            high_price=bar["high"],
-            event_label=me.label,
-            source="manual",
-        ))
+        events.append(
+            DetectedEvent(
+                date=bar_date,
+                ticker=ticker,
+                price_change_pct=round(price_change_pct, 2),
+                volume_multiple=round(volume_multiple, 2),
+                close_price=bar["close"],
+                high_price=bar["high"],
+                event_label=me.label,
+                source="manual",
+            )
+        )
 
     return events

@@ -66,7 +66,11 @@ def generate_meeting_brief(
         "household": client.get("household_members") or "Not specified",
         "notes": client.get("notes") or "None",
         "recent_interactions": [
-            {"date": ix["interaction_date"], "type": ix["interaction_type"], "summary": ix["summary"]}
+            {
+                "date": ix["interaction_date"],
+                "type": ix["interaction_type"],
+                "summary": ix["summary"],
+            }
             for ix in (client.get("interactions") or [])[:5]
         ],
     }
@@ -75,7 +79,11 @@ def generate_meeting_brief(
 
     if signals:
         signal_data = [
-            {"type": s.get("signal_type"), "summary": s.get("summary"), "confidence": s.get("confidence")}
+            {
+                "type": s.get("signal_type"),
+                "summary": s.get("summary"),
+                "confidence": s.get("confidence"),
+            }
             for s in signals[:10]
         ]
         user_message += f"Recent market signals:\n{json.dumps(signal_data, indent=2)}\n\n"

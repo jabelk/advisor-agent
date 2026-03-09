@@ -110,7 +110,9 @@ def _apply_covered_call_defaults(result: PatternParseResult) -> PatternParseResu
     # Premium profit target: 50% (means buy back when premium drops to 50% of initial)
     if exit_criteria.profit_target_pct == 20.0:  # Still at generic default
         exit_criteria.profit_target_pct = 50.0
-        defaults_applied.append("Premium profit target: 50% (covered call default — buy back at 50% premium decay)")
+        defaults_applied.append(
+            "Premium profit target: 50% (covered call default — buy back at 50% premium decay)"
+        )
         logger.info("Applied covered call default: 50%% premium profit target")
 
     # Stop loss: 0% for covered calls (max loss is stock dropping)
@@ -150,11 +152,19 @@ def _apply_news_dip_defaults(result: PatternParseResult) -> PatternParseResult:
 
     rs = result.rule_set
     # Check if this is a pharma news dip pattern
-    is_qualitative = rs.trigger_type.value == "qualitative" if hasattr(rs.trigger_type, 'value') else rs.trigger_type == "qualitative"
+    is_qualitative = (
+        rs.trigger_type.value == "qualitative"
+        if hasattr(rs.trigger_type, "value")
+        else rs.trigger_type == "qualitative"
+    )
     has_pharma_sector = rs.sector_filter and any(
         kw in rs.sector_filter.lower() for kw in ("healthcare", "pharma", "biotech")
     )
-    is_buy_call = rs.action.action_type.value == "buy_call" if hasattr(rs.action.action_type, 'value') else rs.action.action_type == "buy_call"
+    is_buy_call = (
+        rs.action.action_type.value == "buy_call"
+        if hasattr(rs.action.action_type, "value")
+        else rs.action.action_type == "buy_call"
+    )
 
     if not (is_qualitative and has_pharma_sector and is_buy_call):
         return result
@@ -164,24 +174,28 @@ def _apply_news_dip_defaults(result: PatternParseResult) -> PatternParseResult:
     # Ensure price_change_pct trigger condition exists
     has_price_change = any(c.field == "price_change_pct" for c in rs.trigger_conditions)
     if not has_price_change:
-        rs.trigger_conditions.append(TriggerCondition(
-            field="price_change_pct",
-            operator="gte",
-            value="5.0",
-            description="Single-day price spike >= 5%",
-        ))
+        rs.trigger_conditions.append(
+            TriggerCondition(
+                field="price_change_pct",
+                operator="gte",
+                value="5.0",
+                description="Single-day price spike >= 5%",
+            )
+        )
         defaults_applied.append("Trigger: price_change_pct >= 5.0% (pharma dip default)")
         logger.info("Applied pharma dip default: 5%% spike threshold")
 
     # Ensure volume_spike trigger condition exists
     has_volume = any(c.field == "volume_spike" for c in rs.trigger_conditions)
     if not has_volume:
-        rs.trigger_conditions.append(TriggerCondition(
-            field="volume_spike",
-            operator="gte",
-            value="1.5",
-            description="Volume >= 1.5x 20-day average",
-        ))
+        rs.trigger_conditions.append(
+            TriggerCondition(
+                field="volume_spike",
+                operator="gte",
+                value="1.5",
+                description="Volume >= 1.5x 20-day average",
+            )
+        )
         defaults_applied.append("Trigger: volume_spike >= 1.5x (pharma dip default)")
         logger.info("Applied pharma dip default: 1.5x volume threshold")
 

@@ -15,9 +15,7 @@ logger = logging.getLogger(__name__)
 
 def start_run(conn: sqlite3.Connection) -> int:
     """Start a new ingestion run. Returns the run ID."""
-    cursor = conn.execute(
-        "INSERT INTO ingestion_run (status) VALUES ('running')"
-    )
+    cursor = conn.execute("INSERT INTO ingestion_run (status) VALUES ('running')")
     conn.commit()
     run_id: int = cursor.lastrowid  # type: ignore[assignment]
     logger.info("Started ingestion run %d", run_id)
@@ -64,9 +62,7 @@ def fail_run(
 
 def get_last_run(conn: sqlite3.Connection) -> dict[str, str | int | None] | None:
     """Get the most recent ingestion run."""
-    row = conn.execute(
-        "SELECT * FROM ingestion_run ORDER BY id DESC LIMIT 1"
-    ).fetchone()
+    row = conn.execute("SELECT * FROM ingestion_run ORDER BY id DESC LIMIT 1").fetchone()
     return dict(row) if row else None
 
 
