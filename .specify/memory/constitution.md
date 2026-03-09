@@ -36,6 +36,7 @@ The system SHOULD reduce friction and increase the advisor's knowledge and effic
 - Meeting prep: aggregate relevant public market data and talking points (never client data)
 - Learning acceleration: help the advisor understand new concepts through interactive research
 - CRM experimentation: Salesforce developer sandbox as a learning platform for automation skills (dual approach: Salesforce Agentforce/Einstein + Claude-based agents)
+- **Salesforce-native first**: When building CRM features, use Salesforce-native objects and capabilities (List Views, Reports, Dashboards, Custom Objects) rather than local/external storage. The goal is for Jordan to learn Salesforce — local JSON files, SQLite tables, or external tools defeat that purpose. Only store data locally when Salesforce genuinely cannot support the use case.
 - Schwab ecosystem awareness: research what Jordan can automate within Schwab's proprietary tools vs. what needs external tooling
 
 Rationale: The primary value is making the advisor more effective, not replacing their judgment. Jordan currently uses AI for basic tasks (equations, simple productivity) — this system should level him up to AI-assisted research, pattern testing, and workflow automation.
