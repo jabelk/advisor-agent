@@ -58,9 +58,9 @@ Browse through the contacts list and look for **Janet Morales** (or any client w
 
 **What you should see**: Approximately 50 contacts with names, emails, phone numbers, and other details. When you open Janet Morales' record, you should see fields like email, phone, and a description.
 
-## Part 3: Set Up the Claude Tutor
+## Part 3: Set Up the Claude Tutor (Optional — Do This Later)
 
-This part is optional but recommended — it turns Claude into a Salesforce tutor that knows the lesson plan and can guide you through exercises.
+You can skip this part for now and come back after you've done a couple lessons. This turns Claude into a dedicated Salesforce tutor that knows the full lesson plan and can guide you through exercises. It's a better experience but not required — Claude can still check your work without it.
 
 ### Step 7: Download the Guide Files
 
