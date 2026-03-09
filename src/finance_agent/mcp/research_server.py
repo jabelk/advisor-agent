@@ -1050,6 +1050,239 @@ def get_performance_comparison(pattern_id: int = 0) -> dict[str, Any]:
         conn.close()
 
 
+# --- Sandbox CRM tools (Salesforce-backed) ---
+
+
+def _get_sf_client():
+    """Get authenticated Salesforce client for sandbox tools."""
+    from finance_agent.sandbox.sfdc import get_sf_client
+    return get_sf_client()
+
+
+@mcp.tool()
+def sandbox_seed_clients(count: int = 50, reset: bool = False) -> dict[str, Any]:
+    """Push synthetic client profiles to the Salesforce sandbox.
+
+    Creates realistic but fictional Contact records with Task interactions
+    for advisor workflow training.
+
+    Args:
+        count: Number of clients to generate (default: 50).
+        reset: If True, delete existing sandbox data before seeding.
+    """
+    from finance_agent.sandbox.seed import reset_sandbox, seed_clients
+    from finance_agent.sandbox.storage import client_count
+
+    sf = _get_sf_client()
+    if reset:
+        reset_sandbox(sf)
+    created = seed_clients(sf, count=count)
+    total = client_count(sf)
+    return {"created": created, "total": total, "reset": reset}
+
+
+@mcp.tool()
+def sandbox_list_clients(
+    risk_tolerance: str = "",
+    life_stage: str = "",
+    min_value: float = 0,
+    max_value: float = 0,
+    search: str = "",
+    limit: int = 50,
+) -> dict[str, Any]:
+    """List Salesforce Contact records with optional filters.
+
+    Returns client summaries sorted by account value descending.
+    Filter by risk tolerance, life stage, account value range, or free-text search.
+    """
+    from finance_agent.sandbox.storage import list_clients
+
+    sf = _get_sf_client()
+    clients = list_clients(
+        sf,
+        risk_tolerance=risk_tolerance or None,
+        life_stage=life_stage or None,
+        min_value=min_value if min_value > 0 else None,
+        max_value=max_value if max_value > 0 else None,
+        search=search or None,
+        limit=limit,
+    )
+    return {
+        "clients": clients,
+        "total": len(clients),
+        "filters_applied": {
+            k: v for k, v in {
+                "risk_tolerance": risk_tolerance,
+                "life_stage": life_stage,
+                "min_value": min_value,
+                "max_value": max_value,
+                "search": search,
+            }.items() if v
+        },
+    }
+
+
+@mcp.tool()
+def sandbox_search_clients(query: str, limit: int = 20) -> dict[str, Any]:
+    """Search Salesforce Contacts by name or description.
+
+    Returns matching client summaries.
+    """
+    from finance_agent.sandbox.storage import list_clients
+
+    sf = _get_sf_client()
+    clients = list_clients(sf, search=query, limit=limit)
+    return {"clients": clients, "total": len(clients), "query": query}
+
+
+@mcp.tool()
+def sandbox_get_client(client_id: str) -> dict[str, Any]:
+    """View a single Salesforce Contact with Task interaction history.
+
+    Returns full client details including demographics, financials,
+    investment preferences, and all recorded interactions.
+
+    Args:
+        client_id: Salesforce Contact ID (18-character string).
+    """
+    from finance_agent.sandbox.storage import get_client
+
+    sf = _get_sf_client()
+    client = get_client(sf, client_id)
+    if not client:
+        return {"error": f"Client {client_id} not found."}
+    return client
+
+
+@mcp.tool()
+def sandbox_add_client(
+    first_name: str,
+    last_name: str,
+    age: int,
+    occupation: str,
+    account_value: float,
+    risk_tolerance: str,
+    life_stage: str,
+    investment_goals: str = "",
+    notes: str = "",
+) -> dict[str, Any]:
+    """Add a new Contact to the Salesforce sandbox.
+
+    Creates a Contact record with the provided details.
+    Email and phone are auto-generated.
+    """
+    from finance_agent.sandbox.storage import add_client
+
+    sf = _get_sf_client()
+    client_data = {
+        "first_name": first_name,
+        "last_name": last_name,
+        "age": age,
+        "occupation": occupation,
+        "email": f"{first_name.lower()}.{last_name.lower()}@example.com",
+        "phone": "555-000-0000",
+        "account_value": account_value,
+        "risk_tolerance": risk_tolerance,
+        "life_stage": life_stage,
+        "investment_goals": investment_goals or None,
+        "notes": notes or None,
+    }
+    cid = add_client(sf, client_data)
+    return {"client_id": cid, "name": f"{first_name} {last_name}"}
+
+
+@mcp.tool()
+def sandbox_edit_client(
+    client_id: str,
+    account_value: float = 0,
+    risk_tolerance: str = "",
+    life_stage: str = "",
+    investment_goals: str = "",
+    notes: str = "",
+) -> dict[str, Any]:
+    """Update fields on an existing Salesforce Contact.
+
+    Only provided (non-empty) fields are updated.
+
+    Args:
+        client_id: Salesforce Contact ID (18-character string).
+    """
+    from finance_agent.sandbox.storage import update_client
+
+    sf = _get_sf_client()
+    updates = {}
+    if account_value > 0:
+        updates["account_value"] = account_value
+    if risk_tolerance:
+        updates["risk_tolerance"] = risk_tolerance
+    if life_stage:
+        updates["life_stage"] = life_stage
+    if investment_goals:
+        updates["investment_goals"] = investment_goals
+    if notes:
+        updates["notes"] = notes
+
+    if not updates:
+        return {"error": "No fields to update."}
+
+    ok = update_client(sf, client_id, updates)
+    if not ok:
+        return {"error": f"Client {client_id} not found."}
+    return {"client_id": client_id, "updated_fields": list(updates.keys())}
+
+
+@mcp.tool()
+def sandbox_meeting_brief(client_id: str) -> dict[str, Any]:
+    """Generate a meeting preparation brief for a Salesforce Contact.
+
+    Combines the client's Salesforce profile with local research signals
+    to produce a structured brief with talking points.
+    Requires ANTHROPIC_API_KEY environment variable.
+
+    Args:
+        client_id: Salesforce Contact ID (18-character string).
+    """
+    from finance_agent.sandbox.meeting_prep import generate_meeting_brief
+
+    sf = _get_sf_client()
+    # Also get local SQLite connection for research signals
+    conn = _get_readonly_conn()
+    try:
+        return generate_meeting_brief(sf, client_id, db_conn=conn)
+    except ValueError as e:
+        return {"error": str(e)}
+    finally:
+        conn.close()
+
+
+@mcp.tool()
+def sandbox_market_commentary(
+    risk_tolerance: str = "",
+    life_stage: str = "",
+) -> dict[str, Any]:
+    """Generate market commentary for a client segment.
+
+    Produces a 2-3 paragraph market update tailored to the specified
+    client segment. References local research signals when available.
+    Requires ANTHROPIC_API_KEY environment variable.
+
+    Args:
+        risk_tolerance: Target segment risk tolerance (conservative/moderate/growth/aggressive).
+        life_stage: Target segment life stage (accumulation/pre-retirement/retirement/legacy).
+    """
+    from finance_agent.sandbox.commentary import generate_commentary
+
+    conn = _get_readonly_conn()
+    try:
+        return generate_commentary(
+            conn,
+            risk_tolerance=risk_tolerance or None,
+            life_stage=life_stage or None,
+        )
+    finally:
+        conn.close()
+
+
 # --- Entry point ---
 
 if __name__ == "__main__":

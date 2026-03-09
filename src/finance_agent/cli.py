@@ -159,6 +159,52 @@ def main(argv: list[str] | None = None) -> None:
     schedule_sub.add_parser("resume", help="Resume a paused scan schedule")
     schedule_sub.add_parser("remove", help="Remove the scan schedule entirely")
 
+    # Sandbox CRM commands
+    sandbox_parser = subparsers.add_parser("sandbox", help="Salesforce CRM sandbox for advisor workflow training")
+    sandbox_sub = sandbox_parser.add_subparsers(dest="sandbox_command")
+
+    sandbox_sub.add_parser("setup", help="Create custom fields on Salesforce Contact object")
+
+    sb_seed = sandbox_sub.add_parser("seed", help="Push synthetic client data to Salesforce")
+    sb_seed.add_argument("--count", type=int, default=50, help="Number of clients to generate (default: 50)")
+    sb_seed.add_argument("--reset", action="store_true", help="Delete existing sandbox data before seeding")
+
+    sb_list = sandbox_sub.add_parser("list", help="List clients from Salesforce")
+    sb_list.add_argument("--risk", help="Filter by risk tolerance (conservative/moderate/growth/aggressive)")
+    sb_list.add_argument("--stage", help="Filter by life stage (accumulation/pre-retirement/retirement/legacy)")
+    sb_list.add_argument("--min-value", type=float, help="Minimum account value")
+    sb_list.add_argument("--max-value", type=float, help="Maximum account value")
+    sb_list.add_argument("--search", help="Search by name or notes")
+
+    sb_view = sandbox_sub.add_parser("view", help="View a client profile")
+    sb_view.add_argument("client_id", type=str, help="Salesforce Contact ID")
+
+    sb_add = sandbox_sub.add_parser("add", help="Add a new client to Salesforce")
+    sb_add.add_argument("--first", required=True, help="First name")
+    sb_add.add_argument("--last", required=True, help="Last name")
+    sb_add.add_argument("--age", type=int, required=True, help="Age")
+    sb_add.add_argument("--occupation", required=True, help="Occupation")
+    sb_add.add_argument("--account-value", type=float, required=True, help="Account value in USD")
+    sb_add.add_argument("--risk", required=True, help="Risk tolerance")
+    sb_add.add_argument("--life-stage", required=True, help="Life stage")
+    sb_add.add_argument("--goals", help="Investment goals")
+    sb_add.add_argument("--notes", help="Notes")
+
+    sb_edit = sandbox_sub.add_parser("edit", help="Edit a client in Salesforce")
+    sb_edit.add_argument("client_id", type=str, help="Salesforce Contact ID")
+    sb_edit.add_argument("--account-value", type=float, help="Account value")
+    sb_edit.add_argument("--risk", help="Risk tolerance")
+    sb_edit.add_argument("--life-stage", help="Life stage")
+    sb_edit.add_argument("--goals", help="Investment goals")
+    sb_edit.add_argument("--notes", help="Notes")
+
+    sb_brief = sandbox_sub.add_parser("brief", help="Generate meeting prep brief")
+    sb_brief.add_argument("client_id", type=str, help="Salesforce Contact ID")
+
+    sb_commentary = sandbox_sub.add_parser("commentary", help="Generate market commentary")
+    sb_commentary.add_argument("--risk", help="Target risk tolerance")
+    sb_commentary.add_argument("--stage", help="Target life stage")
+
     # MCP server command
     mcp_parser = subparsers.add_parser("mcp", help="Start the MCP research server")
     mcp_parser.add_argument(
@@ -184,6 +230,8 @@ def main(argv: list[str] | None = None) -> None:
         cmd_profile(args)
     elif args.command == "pattern":
         cmd_pattern(args)
+    elif args.command == "sandbox":
+        cmd_sandbox(args)
     elif args.command == "mcp":
         cmd_mcp(args)
     else:
@@ -2251,6 +2299,253 @@ def _pattern_schedule(args: argparse.Namespace) -> None:
     else:
         print("Usage: finance-agent pattern schedule {install|list|pause|resume|remove}")
         sys.exit(1)
+
+
+def cmd_sandbox(args: argparse.Namespace) -> None:
+    """Dispatch sandbox subcommands."""
+    sub = getattr(args, "sandbox_command", None)
+    if sub == "setup":
+        _sandbox_setup()
+    elif sub == "seed":
+        _sandbox_seed(args)
+    elif sub == "list":
+        _sandbox_list(args)
+    elif sub == "view":
+        _sandbox_view(args)
+    elif sub == "add":
+        _sandbox_add(args)
+    elif sub == "edit":
+        _sandbox_edit(args)
+    elif sub == "brief":
+        _sandbox_brief(args)
+    elif sub == "commentary":
+        _sandbox_commentary(args)
+    else:
+        print("Usage: finance-agent sandbox {setup|seed|list|view|add|edit|brief|commentary}")
+        sys.exit(1)
+
+
+def _get_sf() -> "Salesforce":  # noqa: F821
+    """Get authenticated Salesforce client, loading .env if needed."""
+    from dotenv import load_dotenv
+
+    from finance_agent.sandbox.sfdc import get_sf_client
+
+    load_dotenv()
+    return get_sf_client()
+
+
+def _sandbox_setup() -> None:
+    from finance_agent.sandbox.sfdc import ensure_custom_fields
+
+    sf = _get_sf()
+    print("Checking Salesforce custom fields on Contact...")
+    created = ensure_custom_fields(sf)
+    if created:
+        print(f"Created {len(created)} custom fields: {', '.join(created)}")
+    else:
+        print("All custom fields already exist.")
+    print("Salesforce sandbox is ready.")
+
+
+def _sandbox_seed(args: argparse.Namespace) -> None:
+    from finance_agent.sandbox.seed import reset_sandbox, seed_clients
+    from finance_agent.sandbox.storage import client_count
+
+    sf = _get_sf()
+    existing = client_count(sf)
+    if existing > 0 and not args.reset:
+        print(f"Salesforce already has {existing} contacts.")
+        print(f"  Use --reset to delete sandbox data first, or --count N to add more.")
+        print(f"  Adding {args.count} new clients...")
+
+    if args.reset:
+        reset_sandbox(sf)
+        print("Reset sandbox data (deleted @example.com contacts and their tasks).")
+
+    created = seed_clients(sf, count=args.count)
+    total = client_count(sf)
+    print(f"Pushed {created} synthetic clients to Salesforce. Total contacts: {total}.")
+
+
+def _sandbox_list(args: argparse.Namespace) -> None:
+    from finance_agent.sandbox.storage import list_clients
+
+    sf = _get_sf()
+    clients = list_clients(
+        sf,
+        risk_tolerance=args.risk,
+        life_stage=args.stage,
+        min_value=getattr(args, "min_value", None),
+        max_value=getattr(args, "max_value", None),
+        search=args.search,
+    )
+
+    if not clients:
+        print("No clients match your criteria.")
+        return
+
+    # Header
+    print(f"\n{'ID':<20} {'Name':<25} {'Account Value':>14} {'Risk':<14} {'Life Stage':<16} {'Last Contact':<12}")
+    print("-" * 105)
+
+    for c in clients:
+        cid = c["id"][:15] + "..."  # Truncate Salesforce ID for display
+        name = f"{c['first_name']} {c['last_name']}"[:23]
+        value = f"${c['account_value']:,.0f}"
+        risk = c["risk_tolerance"]
+        stage = c["life_stage"]
+        last_contact = c.get("last_interaction_date") or "—"
+        print(f"{cid:<20} {name:<25} {value:>14} {risk:<14} {stage:<16} {last_contact:<12}")
+
+    print(f"\n{len(clients)} client(s) shown.")
+
+
+def _sandbox_view(args: argparse.Namespace) -> None:
+    from finance_agent.sandbox.storage import get_client
+
+    sf = _get_sf()
+    client = get_client(sf, args.client_id)
+    if not client:
+        print(f"Client {args.client_id} not found. Run 'sandbox list' to see available clients.")
+        sys.exit(1)
+
+    print(f"\n{'='*60}")
+    print(f"  Client: {client['first_name']} {client['last_name']}")
+    print(f"  SFDC ID: {client['id']}")
+    print(f"{'='*60}")
+    print(f"  Age:              {client.get('age') or '—'}")
+    print(f"  Occupation:       {client.get('occupation') or '—'}")
+    print(f"  Email:            {client.get('email') or '—'}")
+    print(f"  Phone:            {client.get('phone') or '—'}")
+    acct_val = client.get('account_value')
+    print(f"  Account Value:    ${acct_val:,.2f}" if acct_val else "  Account Value:    —")
+    print(f"  Risk Tolerance:   {client.get('risk_tolerance') or '—'}")
+    print(f"  Life Stage:       {client.get('life_stage') or '—'}")
+    print(f"  Investment Goals: {client.get('investment_goals') or '—'}")
+    print(f"  Household:        {client.get('household_members') or '—'}")
+    print(f"  Notes:            {client.get('notes') or '—'}")
+    print(f"  Created:          {client.get('created_at') or '—'}")
+    print(f"  Updated:          {client.get('updated_at') or '—'}")
+
+    interactions = client.get("interactions", [])
+    if interactions:
+        print(f"\n  Interaction History ({len(interactions)} records):")
+        print(f"  {'-'*55}")
+        for ix in interactions:
+            itype = (ix.get("interaction_type") or "").upper()
+            print(f"  [{ix['interaction_date']}] {itype}: {ix['summary']}")
+    else:
+        print("\n  No interaction history.")
+    print()
+
+
+def _sandbox_add(args: argparse.Namespace) -> None:
+    from finance_agent.sandbox.models import ClientCreate
+    from finance_agent.sandbox.storage import add_client
+
+    try:
+        client_data = ClientCreate(
+            first_name=args.first,
+            last_name=args.last,
+            age=args.age,
+            occupation=args.occupation,
+            email=f"{args.first.lower()}.{args.last.lower()}@example.com",
+            phone="555-000-0000",
+            account_value=args.account_value,
+            risk_tolerance=args.risk,
+            life_stage=args.life_stage,
+            investment_goals=args.goals,
+            notes=args.notes,
+        )
+    except Exception as e:
+        print(f"Validation error: {e}")
+        sys.exit(1)
+
+    sf = _get_sf()
+    cid = add_client(sf, client_data.model_dump())
+    print(f"Client created in Salesforce: {args.first} {args.last} (ID: {cid})")
+
+
+def _sandbox_edit(args: argparse.Namespace) -> None:
+    from finance_agent.sandbox.storage import update_client
+
+    updates = {}
+    if args.account_value is not None:
+        updates["account_value"] = args.account_value
+    if args.risk:
+        updates["risk_tolerance"] = args.risk
+    if args.life_stage:
+        updates["life_stage"] = args.life_stage
+    if args.goals is not None:
+        updates["investment_goals"] = args.goals
+    if args.notes is not None:
+        updates["notes"] = args.notes
+
+    if not updates:
+        print("No fields to update. Use --account-value, --risk, --life-stage, --goals, or --notes.")
+        sys.exit(1)
+
+    sf = _get_sf()
+    ok = update_client(sf, args.client_id, updates)
+    if ok:
+        print(f"Client {args.client_id} updated in Salesforce.")
+    else:
+        print(f"Client {args.client_id} not found.")
+        sys.exit(1)
+
+
+def _sandbox_brief(args: argparse.Namespace) -> None:
+    from finance_agent.sandbox.meeting_prep import generate_meeting_brief
+
+    sf = _get_sf()
+    # Also get SQLite connection for research signals
+    conn, _, _ = _get_db_and_audit()
+    try:
+        brief = generate_meeting_brief(sf, args.client_id, db_conn=conn)
+        print(f"\n{'='*60}")
+        print(f"  Meeting Brief: {brief['client_name']}")
+        print(f"  Generated: {brief['generated_at']}")
+        print(f"{'='*60}\n")
+        print("## Client Summary\n")
+        print(brief["client_summary"])
+        print("\n## Portfolio Context\n")
+        print(brief["portfolio_context"])
+        print("\n## Market Conditions\n")
+        print(brief["market_conditions"])
+        print("\n## Talking Points\n")
+        for i, tp in enumerate(brief["talking_points"], 1):
+            print(f"{i}. {tp}")
+        if not brief["market_data_available"]:
+            print("\n⚠ Market data unavailable — run research pipeline first.")
+        print()
+    except ValueError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    finally:
+        conn.close()
+
+
+def _sandbox_commentary(args: argparse.Namespace) -> None:
+    from finance_agent.sandbox.commentary import generate_commentary
+
+    conn, _, _ = _get_db_and_audit()
+    try:
+        result = generate_commentary(
+            conn,
+            risk_tolerance=args.risk,
+            life_stage=args.stage,
+        )
+        print(f"\n{'='*60}")
+        print(f"  Market Commentary: {result['segment']}")
+        print(f"  Generated: {result['generated_at']}")
+        print(f"{'='*60}\n")
+        print(result["commentary"])
+        if not result["market_data_available"]:
+            print("\n⚠ Market data unavailable — run research pipeline first.")
+        print()
+    finally:
+        conn.close()
 
 
 def cmd_mcp(args: argparse.Namespace) -> None:
