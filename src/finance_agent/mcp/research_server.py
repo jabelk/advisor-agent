@@ -1593,6 +1593,107 @@ def sandbox_ask_clients(query: str) -> dict[str, Any]:
         return {"error": f"NL query failed: {e}"}
 
 
+@mcp.tool()
+def sandbox_create_task(client_name: str, subject: str, due_date: str = "", priority: str = "Normal") -> dict[str, Any]:
+    """Create a follow-up task for a Salesforce Contact.
+
+    Creates a task linked to the matched contact with [advisor-agent] tag.
+    due_date defaults to 7 days from today if empty. priority: High/Normal/Low.
+    """
+    from finance_agent.sandbox.sfdc_tasks import create_task, resolve_contact
+
+    sf = _get_sf_client()
+    contacts = resolve_contact(sf, client_name)
+    if not contacts:
+        return {"error": f"No contacts found matching '{client_name}'"}
+    if len(contacts) > 1:
+        return {"error": f"Multiple contacts match '{client_name}'", "matches": contacts}
+    result = create_task(sf, contacts[0]["id"], subject, due_date=due_date or None, priority=priority)
+    result["client_name"] = contacts[0]["name"]
+    return result
+
+
+@mcp.tool()
+def sandbox_show_tasks(client_name: str = "", overdue_only: bool = False, include_summary: bool = False) -> dict[str, Any]:
+    """List open follow-up tasks from Salesforce.
+
+    Shows tasks created by advisor-agent. Filter by client name or overdue status.
+    Set include_summary=True to get counts of open/overdue/due-today/due-this-week.
+    """
+    from finance_agent.sandbox.sfdc_tasks import get_task_summary, list_tasks
+
+    sf = _get_sf_client()
+    tasks = list_tasks(sf, client_name=client_name or None, overdue_only=overdue_only)
+    result: dict[str, Any] = {"tasks": tasks, "total": len(tasks)}
+    if include_summary:
+        result["summary"] = get_task_summary(sf)
+    return result
+
+
+@mcp.tool()
+def sandbox_complete_task(subject: str) -> dict[str, Any]:
+    """Mark a follow-up task as completed by subject match.
+
+    Fuzzy-matches the subject against open [advisor-agent]-tagged tasks.
+    Returns the completed task details, or disambiguation options if multiple match.
+    """
+    from finance_agent.sandbox.sfdc_tasks import complete_task
+
+    sf = _get_sf_client()
+    result = complete_task(sf, subject)
+    if result["status"] == "not_found":
+        return {"error": f"No open tasks found matching '{subject}'"}
+    if result["status"] == "already_completed":
+        return {"error": f"Task '{result['subject']}' is already completed"}
+    if result["status"] == "ambiguous":
+        return {"error": f"Multiple tasks match '{subject}'", "matches": result["matches"]}
+    return result
+
+
+@mcp.tool()
+def sandbox_log_activity(client_name: str, subject: str, activity_type: str, activity_date: str = "") -> dict[str, Any]:
+    """Log a completed activity (call, meeting, email, other) for a client.
+
+    Creates a completed Salesforce Task with the appropriate TaskSubtype.
+    activity_type must be: call, meeting, email, or other.
+    activity_date defaults to today if empty. Cannot be in the future.
+    """
+    from finance_agent.sandbox.sfdc_tasks import log_activity, resolve_contact
+
+    sf = _get_sf_client()
+    contacts = resolve_contact(sf, client_name)
+    if not contacts:
+        return {"error": f"No contacts found matching '{client_name}'"}
+    if len(contacts) > 1:
+        return {"error": f"Multiple contacts match '{client_name}'", "matches": contacts}
+    try:
+        result = log_activity(sf, contacts[0]["id"], subject, activity_type, activity_date=activity_date or None)
+    except ValueError as e:
+        return {"error": str(e)}
+    result["client_name"] = contacts[0]["name"]
+    return result
+
+
+@mcp.tool()
+def sandbox_outreach_queue(days: int, min_value: float = 0, create_tasks: bool = False) -> dict[str, Any]:
+    """Generate a prioritized outreach list of clients not contacted recently.
+
+    Finds contacts with no activity in the specified number of days, sorted
+    by account value (highest first). Set days=0 for all contacts.
+    Set create_tasks=True to auto-create follow-up tasks (skips clients
+    that already have an open task).
+    """
+    from finance_agent.sandbox.sfdc_tasks import create_outreach_tasks, get_outreach_queue
+
+    sf = _get_sf_client()
+    queue = get_outreach_queue(sf, days, min_value=min_value)
+    result: dict[str, Any] = {"clients": queue, "total": len(queue)}
+    if create_tasks and queue:
+        task_result = create_outreach_tasks(sf, queue, days)
+        result.update(task_result)
+    return result
+
+
 # --- Entry point ---
 
 if __name__ == "__main__":

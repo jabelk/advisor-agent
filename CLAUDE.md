@@ -98,6 +98,8 @@ This project started as a copy of finance-agent and inherits:
 - Salesforce (client data, unchanged from 019); local JSON file (saved list definitions — lightweight, no migration needed) (020-client-list-builder)
 - Python 3.12+ with type hints + simple_salesforce (existing — sf.mdapi for ListViews, sf.restful for Reports), pydantic (existing — CompoundFilter model), anthropic (existing — NL translation) (021-sfdc-native-lists)
 - Salesforce platform (ListViews via Metadata API, Reports via Analytics REST API) — no local storage for this feature (021-sfdc-native-lists)
+- Python 3.12+ with type hints + simple_salesforce (SFDC API), pydantic (models), fastmcp (MCP tools), anthropic (not needed for this feature) (022-sfdc-task-logging)
+- Salesforce Task standard object (no local SQLite) (022-sfdc-task-logging)
 
 ## Recent Changes
 - 011-pattern-lab: Added Python 3.12+ + alpaca-py (broker + market data), anthropic (Claude for pattern parsing), pydantic (structured models), fastmcp (MCP tool exposure)
