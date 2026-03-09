@@ -1003,6 +1003,53 @@ def get_option_chain_history(
         conn.close()
 
 
+# --- Dashboard & Performance tools ---
+
+
+@mcp.tool()
+def get_dashboard_summary() -> dict[str, Any]:
+    """Retrieve the full portfolio dashboard summary.
+
+    Returns pattern status counts, aggregate paper trade P&L and win rate,
+    recent alert counts, and per-pattern summaries for active (paper_trading) patterns.
+    Use this to answer questions like "how are my patterns doing?"
+    """
+    from finance_agent.patterns.dashboard import get_dashboard_data
+
+    conn = _get_readonly_conn()
+    try:
+        return get_dashboard_data(conn)
+    finally:
+        conn.close()
+
+
+@mcp.tool()
+def get_performance_comparison(pattern_id: int = 0) -> dict[str, Any]:
+    """Compare backtest predictions vs paper trade actuals.
+
+    Returns side-by-side metrics for each pattern: backtest win rate, paper trade
+    win rate, divergence warnings, and notes about patterns that may need adjustment.
+    Use this to answer questions like "is my pharma pattern working?"
+
+    Args:
+        pattern_id: Specific pattern ID. Default: 0 (all patterns with backtest data).
+    """
+    from finance_agent.patterns.dashboard import (
+        get_performance_comparison as _get_perf,
+    )
+
+    conn = _get_readonly_conn()
+    try:
+        pid = pattern_id if pattern_id else None
+        comparisons = _get_perf(conn, pattern_id=pid)
+        return {
+            "comparisons": comparisons,
+            "total": len(comparisons),
+        }
+    finally:
+        conn.close()
+
+
 # --- Entry point ---
 
 if __name__ == "__main__":

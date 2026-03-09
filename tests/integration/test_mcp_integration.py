@@ -95,6 +95,8 @@ class TestMCPServerIntegration:
             "export_backtest",
             "get_option_chain_history",
             "get_pattern_alerts",
+            "get_dashboard_summary",
+            "get_performance_comparison",
         }
         missing = expected - tool_names
         extra = tool_names - expected

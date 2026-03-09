@@ -144,6 +144,21 @@ def main(argv: list[str] | None = None) -> None:
     pat_auto_exec_group.add_argument("--enable", action="store_true", help="Enable auto-execution")
     pat_auto_exec_group.add_argument("--disable", action="store_true", help="Disable auto-execution")
 
+    pattern_sub.add_parser("dashboard", help="Show portfolio dashboard across all patterns")
+
+    pat_perf = pattern_sub.add_parser("perf", help="Compare backtest predictions vs paper trade actuals")
+    pat_perf.add_argument("pattern_id", nargs="?", type=int, help="Pattern ID (default: all patterns)")
+
+    pat_schedule = pattern_sub.add_parser("schedule", help="Manage automated scan schedule")
+    schedule_sub = pat_schedule.add_subparsers(dest="schedule_command")
+    sched_install = schedule_sub.add_parser("install", help="Install recurring scan schedule")
+    sched_install.add_argument("--interval", type=int, required=True, help="Scan interval in minutes")
+    sched_install.add_argument("--cooldown", type=int, default=24, help="Deduplication cooldown hours (default: 24)")
+    schedule_sub.add_parser("list", help="Show current schedule status")
+    schedule_sub.add_parser("pause", help="Pause the scan schedule")
+    schedule_sub.add_parser("resume", help="Resume a paused scan schedule")
+    schedule_sub.add_parser("remove", help="Remove the scan schedule entirely")
+
     # MCP server command
     mcp_parser = subparsers.add_parser("mcp", help="Start the MCP research server")
     mcp_parser.add_argument(
@@ -672,8 +687,14 @@ def cmd_pattern(args: argparse.Namespace) -> None:
             _pattern_alerts(conn, args)
         elif args.pattern_command == "auto-execute":
             _pattern_auto_execute(conn, audit, args)
+        elif args.pattern_command == "dashboard":
+            _pattern_dashboard(conn)
+        elif args.pattern_command == "perf":
+            _pattern_perf(conn, args)
+        elif args.pattern_command == "schedule":
+            _pattern_schedule(args)
         else:
-            print("Usage: finance-agent pattern {describe|backtest|paper-trade|list|show|compare|retire|ab-test|export|scan|alerts|auto-execute}")
+            print("Usage: finance-agent pattern {describe|backtest|paper-trade|list|show|compare|retire|ab-test|export|scan|alerts|auto-execute|dashboard|perf|schedule}")
             sys.exit(1)
     finally:
         close_connection(conn)
@@ -2141,6 +2162,95 @@ def _pattern_auto_execute(
         "pattern_id": args.pattern_id,
         "enabled": args.enable,
     })
+
+
+def _pattern_dashboard(conn: sqlite3.Connection) -> None:
+    """Display the portfolio dashboard."""
+    from finance_agent.patterns.dashboard import format_dashboard, get_dashboard_data
+
+    data = get_dashboard_data(conn)
+    print(format_dashboard(data))
+
+
+def _pattern_perf(conn: sqlite3.Connection, args: argparse.Namespace) -> None:
+    """Show performance comparison: backtest vs paper trade."""
+    from finance_agent.patterns.dashboard import (
+        format_performance,
+        get_performance_comparison,
+    )
+
+    pattern_id = getattr(args, "pattern_id", None)
+    comparisons = get_performance_comparison(conn, pattern_id=pattern_id)
+
+    if not comparisons:
+        if pattern_id:
+            print(f"No backtest data found for pattern #{pattern_id}")
+        else:
+            print("No patterns with backtest data found")
+        sys.exit(1)
+
+    single = pattern_id is not None
+    print(format_performance(comparisons, single=single))
+
+
+def _pattern_schedule(args: argparse.Namespace) -> None:
+    """Manage the automated scan schedule."""
+    from finance_agent.scheduling.scan_schedule import (
+        get_scan_schedule,
+        install_scan_schedule,
+        pause_scan_schedule,
+        remove_scan_schedule,
+        resume_scan_schedule,
+    )
+
+    cmd = getattr(args, "schedule_command", None)
+
+    if cmd == "install":
+        result = install_scan_schedule(args.interval, cooldown_hours=args.cooldown)
+        if "error" in result:
+            print(f"Error: {result['error']}")
+            sys.exit(1)
+        print("Scan schedule installed:")
+        print(f"  Interval: every {args.interval} minutes")
+        print(f"  Market hours: 9:30 AM \u2013 4:00 PM ET (weekdays only)")
+        print(f"  Plist: {result['plist_path']}")
+        print(f"  Status: {result['status']}")
+
+    elif cmd == "list":
+        schedule = get_scan_schedule()
+        if not schedule:
+            print("No scan schedule installed.")
+            print("Install one with: finance-agent pattern schedule install --interval 15")
+            return
+        print("Scan Schedule:")
+        print(f"  Interval: every {schedule['interval_minutes']} minutes")
+        print(f"  Market hours: 9:30 AM \u2013 4:00 PM ET")
+        status_str = "active" if schedule["active"] else "paused"
+        print(f"  Status: {status_str}")
+        if schedule.get("last_run"):
+            print(f"  Last run: {schedule['last_run']}")
+
+    elif cmd == "pause":
+        if pause_scan_schedule():
+            print("Scan schedule paused.")
+        else:
+            print("No active schedule to pause.")
+
+    elif cmd == "resume":
+        if resume_scan_schedule():
+            print("Scan schedule resumed.")
+        else:
+            print("No paused schedule to resume.")
+
+    elif cmd == "remove":
+        if remove_scan_schedule():
+            print("Scan schedule removed.")
+        else:
+            print("No schedule to remove.")
+
+    else:
+        print("Usage: finance-agent pattern schedule {install|list|pause|resume|remove}")
+        sys.exit(1)
 
 
 def cmd_mcp(args: argparse.Namespace) -> None:
