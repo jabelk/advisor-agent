@@ -97,6 +97,14 @@ class TestMCPServerIntegration:
             "get_pattern_alerts",
             "get_dashboard_summary",
             "get_performance_comparison",
+            "sandbox_seed_clients",
+            "sandbox_list_clients",
+            "sandbox_search_clients",
+            "sandbox_get_client",
+            "sandbox_add_client",
+            "sandbox_edit_client",
+            "sandbox_meeting_brief",
+            "sandbox_market_commentary",
         }
         missing = expected - tool_names
         extra = tool_names - expected

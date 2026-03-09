@@ -92,6 +92,8 @@ This project started as a copy of finance-agent and inherits:
 - SQLite (WAL mode) — new `pattern_alert` table via migration 010, add `auto_execute` column to `trading_pattern` (017-live-pattern-alerts)
 - Python 3.12+ with type hints + alpaca-py 0.43+ (market data), pydantic (models), fastmcp (MCP tools) (018-track1-dashboard-perf)
 - SQLite (WAL mode) — no new tables; all dashboard/performance data is derived from existing tables. Schedule config stored as a launchd plist file. (018-track1-dashboard-perf)
+- Python 3.12+ with type hints + anthropic (Claude API for brief/commentary generation), pydantic (models), fastmcp (MCP tools) (019-sfdc-sandbox)
+- SQLite (WAL mode) — new migration for sandbox_client table; meeting briefs and commentary generated on-the-fly (not persisted) (019-sfdc-sandbox)
 
 ## Recent Changes
 - 011-pattern-lab: Added Python 3.12+ + alpaca-py (broker + market data), anthropic (Claude for pattern parsing), pydantic (structured models), fastmcp (MCP tool exposure)
