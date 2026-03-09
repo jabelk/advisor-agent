@@ -595,6 +595,7 @@ def run_backtest(
                     start_date=start_date,
                     end_date=end_date,
                     event_config=event_config,
+                    conn=conn,
                 )
                 save_backtest_result(conn, report)
                 from finance_agent.patterns.models import AggregatedBacktestReport, TickerBreakdown
@@ -627,6 +628,7 @@ def run_backtest(
                     start_date=start_date,
                     end_date=end_date,
                     event_config=event_config,
+                    conn=conn,
                 )
                 save_backtest_result(conn, agg.combined_report)
 
@@ -641,6 +643,7 @@ def run_backtest(
                 bars_by_ticker=all_bars,
                 start_date=start_date,
                 end_date=end_date,
+                conn=conn,
             )
             save_backtest_result(conn, report)
             result = report.model_dump()
@@ -831,6 +834,131 @@ def export_backtest(
             "pattern_id": pattern_id,
             "backtest_id": actual_backtest_id,
         }
+    finally:
+        conn.close()
+
+
+# --- Option chain lookup ---
+
+
+@mcp.tool()
+def get_option_chain_history(
+    ticker: str,
+    date: str,
+    option_type: str = "call",
+    strike_min: float | None = None,
+    strike_max: float | None = None,
+    expiration_within_days: int = 45,
+) -> dict[str, Any]:
+    """Look up historical option contracts for a ticker around a specific date.
+
+    Constructs candidate OCC symbols for strikes at standard increments,
+    fetches bars for each, and returns contracts that had trading activity.
+
+    Args:
+        ticker: Underlying stock ticker (e.g., "ABBV")
+        date: Target date (YYYY-MM-DD)
+        option_type: "call" or "put" (default: "call")
+        strike_min: Minimum strike price filter (optional)
+        strike_max: Maximum strike price filter (optional)
+        expiration_within_days: Only contracts expiring within N days (default: 45)
+    """
+    try:
+        api_key, secret_key = _get_alpaca_keys()
+    except ValueError as e:
+        return {"error": str(e)}
+
+    try:
+        from datetime import date as date_type
+        from datetime import timedelta
+
+        target_date = date_type.fromisoformat(date)
+    except ValueError:
+        return {"error": f"Invalid date format: {date}. Use YYYY-MM-DD."}
+
+    conn = _get_readwrite_conn()
+    try:
+        from finance_agent.patterns.option_data import (
+            build_occ_symbol,
+            fetch_and_cache_option_bars,
+            find_nearest_expiration,
+            _strike_increment,
+        )
+
+        # Determine strike range from stock price if not specified
+        if strike_min is None or strike_max is None:
+            from finance_agent.patterns.market_data import fetch_and_cache_bars
+
+            stock_bars = fetch_and_cache_bars(
+                conn, ticker,
+                (target_date - timedelta(days=10)).isoformat(),
+                (target_date + timedelta(days=5)).isoformat(),
+                "day", api_key, secret_key,
+            )
+            if not stock_bars:
+                return {"error": f"No stock price data for {ticker} around {date}."}
+
+            # Find closest bar to target date
+            closest_bar = min(stock_bars, key=lambda b: abs(
+                (date_type.fromisoformat(b["bar_timestamp"][:10]) - target_date).days
+            ))
+            stock_price = closest_bar["close"]
+
+            if strike_min is None:
+                strike_min = stock_price * 0.85
+            if strike_max is None:
+                strike_max = stock_price * 1.15
+
+        # Find nearest expiration
+        expiration = find_nearest_expiration(
+            target_date + timedelta(days=expiration_within_days // 2),
+            prefer_monthly=True,
+        )
+
+        # Generate candidate strikes at standard increments
+        increment = _strike_increment(strike_min)
+        # Round strike_min down and strike_max up to nearest increment
+        start_strike = (strike_min // increment) * increment
+        end_strike = ((strike_max // increment) + 1) * increment
+
+        contracts: list[dict] = []
+        strike = start_strike
+        while strike <= end_strike:
+            symbol = build_occ_symbol(ticker, expiration, strike, option_type)
+            fetch_start = (target_date - timedelta(days=5)).isoformat()
+            fetch_end = (target_date + timedelta(days=5)).isoformat()
+
+            bars = fetch_and_cache_option_bars(
+                conn, symbol, fetch_start, fetch_end, api_key, secret_key,
+            )
+
+            if bars:
+                # Find bar closest to target date
+                best_bar = min(bars, key=lambda b: abs(
+                    (date_type.fromisoformat(b["bar_timestamp"][:10]) - target_date).days
+                ))
+                contracts.append({
+                    "symbol": symbol,
+                    "strike": strike,
+                    "expiration": expiration.isoformat(),
+                    "type": option_type,
+                    "close_price": best_bar["close"],
+                    "volume": best_bar["volume"],
+                    "pricing": "real",
+                })
+
+            strike = round(strike + increment, 2)
+
+        if not contracts:
+            return {"error": f"No option data found for {ticker} around {date}."}
+
+        return {
+            "ticker": ticker,
+            "date": date,
+            "contracts": contracts,
+        }
+    except Exception as e:
+        return {"error": f"Option chain lookup failed: {e}"}
     finally:
         conn.close()
 

@@ -865,7 +865,7 @@ def _run_standard_backtest(
     from finance_agent.patterns.storage import save_backtest_result
 
     print("\nRunning backtest...")
-    report = run_backtest(args.pattern_id, rule_set, all_bars, start_date, end_date)
+    report = run_backtest(args.pattern_id, rule_set, all_bars, start_date, end_date, conn=conn)
 
     # Save results
     backtest_id = save_backtest_result(conn, report)
@@ -1009,6 +1009,7 @@ def _run_single_ticker_news_dip(
             start_date=start_date,
             end_date=end_date,
             event_config=event_config,
+            conn=conn,
         )
 
         backtest_id = save_backtest_result(conn, report)
@@ -1065,7 +1066,14 @@ def _run_single_ticker_news_dip(
                 if trade.option_details:
                     strike = trade.option_details.get("strike_strategy", "")
                     exp = trade.option_details.get("expiration_days", "")
-                    action_str = f"{trade.action_type} ({strike}, {exp}d)"
+                    pricing = trade.option_details.get("pricing", "")
+                    symbol = trade.option_details.get("option_symbol", "")
+                    if symbol and pricing == "real":
+                        action_str = f"{symbol} (real)"
+                    elif pricing == "estimated":
+                        action_str = f"{trade.action_type} ({strike}, {exp}d) [est]"
+                    else:
+                        action_str = f"{trade.action_type} ({strike}, {exp}d)"
                 print(f"  {i:<4}{trade.trigger_date:<13}{trade.entry_date:<13}{trade.exit_date:<13}{ret_sign}{trade.return_pct:.1f}%{'':>3}{action_str}")
         else:
             if report.trigger_count == 0:
@@ -1127,6 +1135,7 @@ def _run_multi_ticker_news_dip(
         start_date=start_date,
         end_date=end_date,
         event_config=event_config,
+        conn=conn,
     )
 
     report = agg_report.combined_report
@@ -1231,6 +1240,7 @@ def _run_covered_call_backtest(
             start_date=start_date,
             end_date=end_date,
             shares=args.shares,
+            conn=conn,
         )
 
         # Save as standard backtest result for pattern status tracking
@@ -1285,7 +1295,13 @@ def _run_covered_call_backtest(
                     chg = ((cycle.stock_price_at_exit - cycle.stock_entry_price) / cycle.stock_entry_price) * 100
                     stock_chg = f"Stock: {'+' if chg >= 0 else ''}{chg:.1f}%"
                 outcome = cycle.outcome or "open"
-                print(f"    {cycle.cycle_start_date}  | Premium: ${cycle.call_premium:,.2f} | {stock_chg} | Outcome: {outcome}")
+                pricing_tag = ""
+                if getattr(cycle, "pricing", None) == "real":
+                    symbol = getattr(cycle, "option_symbol", "") or ""
+                    pricing_tag = f" | {symbol} (real)"
+                elif getattr(cycle, "pricing", None) == "estimated":
+                    pricing_tag = " | [est]"
+                print(f"    {cycle.cycle_start_date}  | Premium: ${cycle.call_premium:,.2f} | {stock_chg} | Outcome: {outcome}{pricing_tag}")
 
         if report.sample_size_warning:
             print(f"\n  WARNING: Only {report.cycle_count} cycles — fewer than {6} needed for meaningful income estimation")

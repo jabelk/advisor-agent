@@ -86,6 +86,8 @@ This project started as a copy of finance-agent and inherits:
 - SQLite (WAL mode) — extends existing backtest_result table, no new tables (014-pattern-lab-extensions)
 - Python 3.12+ with type hints + fastmcp (MCP tool exposure), alpaca-py (market data), scipy (stats), pydantic (models) (015-mcp-pattern-tools)
 - SQLite (WAL mode) — read-only for pattern queries, read-write for market data cache (015-mcp-pattern-tools)
+- Python 3.12+ with type hints + alpaca-py 0.43+ (OptionHistoricalDataClient, OptionBarsRequest), pydantic (models) (016-real-options-data)
+- SQLite (WAL mode) — new `option_price_cache` table via migration 009 (016-real-options-data)
 
 ## Recent Changes
 - 011-pattern-lab: Added Python 3.12+ + alpaca-py (broker + market data), anthropic (Claude for pattern parsing), pydantic (structured models), fastmcp (MCP tool exposure)
