@@ -1089,15 +1089,45 @@ def sandbox_list_clients(
     max_value: float = 0,
     search: str = "",
     limit: int = 50,
+    min_age: int = 0,
+    max_age: int = 0,
+    risk_tolerances: str = "",
+    life_stages: str = "",
+    not_contacted_days: int = 0,
+    contacted_after: str = "",
+    contacted_before: str = "",
+    sort_by: str = "account_value",
+    sort_dir: str = "desc",
 ) -> dict[str, Any]:
     """List Salesforce Contact records with optional filters.
 
-    Returns client summaries sorted by account value descending.
-    Filter by risk tolerance, life stage, account value range, or free-text search.
+    Returns client summaries with compound filtering support.
+    Filter by risk tolerance(s), life stage(s), age range, account value range,
+    contact recency, date range, or free-text search. Supports custom sorting.
+
+    Args:
+        risk_tolerance: Single risk tolerance filter (backward compatible).
+        life_stage: Single life stage filter (backward compatible).
+        min_value: Minimum account value (0 = no filter).
+        max_value: Maximum account value (0 = no filter).
+        search: Free-text search across name and notes.
+        limit: Maximum results (default 50).
+        min_age: Minimum client age (0 = no filter).
+        max_age: Maximum client age (0 = no filter).
+        risk_tolerances: Comma-separated risk tolerances (overrides risk_tolerance).
+        life_stages: Comma-separated life stages (overrides life_stage).
+        not_contacted_days: Clients not contacted in N days (0 = no filter).
+        contacted_after: Last contact on or after date (YYYY-MM-DD).
+        contacted_before: Last contact on or before date (YYYY-MM-DD).
+        sort_by: Sort field (account_value, age, last_name, last_interaction_date).
+        sort_dir: Sort direction (asc, desc).
     """
     from finance_agent.sandbox.storage import list_clients
 
     sf = _get_sf_client()
+    risk_list = [r.strip() for r in risk_tolerances.split(",") if r.strip()] if risk_tolerances else None
+    stage_list = [s.strip() for s in life_stages.split(",") if s.strip()] if life_stages else None
+
     clients = list_clients(
         sf,
         risk_tolerance=risk_tolerance or None,
@@ -1106,20 +1136,17 @@ def sandbox_list_clients(
         max_value=max_value if max_value > 0 else None,
         search=search or None,
         limit=limit,
+        min_age=min_age if min_age > 0 else None,
+        max_age=max_age if max_age > 0 else None,
+        risk_tolerances=risk_list,
+        life_stages=stage_list,
+        not_contacted_days=not_contacted_days if not_contacted_days > 0 else None,
+        contacted_after=contacted_after or None,
+        contacted_before=contacted_before or None,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
     )
-    return {
-        "clients": clients,
-        "total": len(clients),
-        "filters_applied": {
-            k: v for k, v in {
-                "risk_tolerance": risk_tolerance,
-                "life_stage": life_stage,
-                "min_value": min_value,
-                "max_value": max_value,
-                "search": search,
-            }.items() if v
-        },
-    }
+    return {"clients": clients, "total": len(clients)}
 
 
 @mcp.tool()
@@ -1281,6 +1308,232 @@ def sandbox_market_commentary(
         )
     finally:
         conn.close()
+
+
+@mcp.tool()
+def sandbox_query_clients(
+    min_age: int = 0,
+    max_age: int = 0,
+    min_value: float = 0,
+    max_value: float = 0,
+    risk_tolerances: str = "",
+    life_stages: str = "",
+    not_contacted_days: int = 0,
+    contacted_after: str = "",
+    contacted_before: str = "",
+    search: str = "",
+    sort_by: str = "account_value",
+    sort_dir: str = "desc",
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Run a compound filter query against Salesforce Contacts.
+
+    Supports multi-dimensional filtering: age range, account value range,
+    multiple risk tolerances and life stages, contact recency, and date ranges.
+    Returns filtered, sorted results with a filter summary.
+
+    Args:
+        min_age: Minimum client age (0 = no filter).
+        max_age: Maximum client age (0 = no filter).
+        min_value: Minimum account value (0 = no filter).
+        max_value: Maximum account value (0 = no filter).
+        risk_tolerances: Comma-separated risk tolerances (conservative,moderate,growth,aggressive).
+        life_stages: Comma-separated life stages (accumulation,pre-retirement,retirement,legacy).
+        not_contacted_days: Clients not contacted in N days (0 = no filter).
+        contacted_after: Last contact on or after date (YYYY-MM-DD).
+        contacted_before: Last contact on or before date (YYYY-MM-DD).
+        search: Free-text search across name and notes.
+        sort_by: Sort field (account_value, age, last_name, last_interaction_date).
+        sort_dir: Sort direction (asc, desc).
+        limit: Maximum results (default 50).
+    """
+    from finance_agent.sandbox.models import CompoundFilter
+    from finance_agent.sandbox.storage import format_query_results, list_clients
+
+    sf = _get_sf_client()
+    risk_list = [r.strip() for r in risk_tolerances.split(",") if r.strip()] if risk_tolerances else None
+    stage_list = [s.strip() for s in life_stages.split(",") if s.strip()] if life_stages else None
+
+    filters = CompoundFilter(
+        min_age=min_age if min_age > 0 else None,
+        max_age=max_age if max_age > 0 else None,
+        min_value=min_value if min_value > 0 else None,
+        max_value=max_value if max_value > 0 else None,
+        risk_tolerances=risk_list,
+        life_stages=stage_list,
+        not_contacted_days=not_contacted_days if not_contacted_days > 0 else None,
+        contacted_after=contacted_after or None,
+        contacted_before=contacted_before or None,
+        search=search or None,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        limit=limit,
+    )
+    clients = list_clients(
+        sf,
+        min_age=filters.min_age,
+        max_age=filters.max_age,
+        min_value=filters.min_value,
+        max_value=filters.max_value,
+        risk_tolerances=filters.risk_tolerances,
+        life_stages=filters.life_stages,
+        not_contacted_days=filters.not_contacted_days,
+        contacted_after=filters.contacted_after,
+        contacted_before=filters.contacted_before,
+        search=filters.search,
+        sort_by=filters.sort_by,
+        sort_dir=filters.sort_dir,
+        limit=filters.limit,
+    )
+    return format_query_results(clients, filters)
+
+
+@mcp.tool()
+def sandbox_save_list(
+    name: str,
+    description: str = "",
+    min_age: int = 0,
+    max_age: int = 0,
+    min_value: float = 0,
+    max_value: float = 0,
+    risk_tolerances: str = "",
+    life_stages: str = "",
+    not_contacted_days: int = 0,
+    contacted_after: str = "",
+    contacted_before: str = "",
+    search: str = "",
+    sort_by: str = "account_value",
+    sort_dir: str = "desc",
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Save a named client list with filter criteria.
+
+    Creates a reusable list that can be run later to get fresh Salesforce results.
+
+    Args:
+        name: Unique name for the list.
+        description: Human-readable description of the list purpose.
+        min_age: Minimum client age (0 = no filter).
+        max_age: Maximum client age (0 = no filter).
+        min_value: Minimum account value (0 = no filter).
+        max_value: Maximum account value (0 = no filter).
+        risk_tolerances: Comma-separated risk tolerances.
+        life_stages: Comma-separated life stages.
+        not_contacted_days: Not contacted in N days (0 = no filter).
+        contacted_after: Last contact on or after date (YYYY-MM-DD).
+        contacted_before: Last contact on or before date (YYYY-MM-DD).
+        search: Free-text search.
+        sort_by: Sort field.
+        sort_dir: Sort direction.
+        limit: Maximum results.
+    """
+    from finance_agent.sandbox.list_builder import save_list
+    from finance_agent.sandbox.models import CompoundFilter
+
+    risk_list = [r.strip() for r in risk_tolerances.split(",") if r.strip()] if risk_tolerances else None
+    stage_list = [s.strip() for s in life_stages.split(",") if s.strip()] if life_stages else None
+
+    filters = CompoundFilter(
+        min_age=min_age if min_age > 0 else None,
+        max_age=max_age if max_age > 0 else None,
+        min_value=min_value if min_value > 0 else None,
+        max_value=max_value if max_value > 0 else None,
+        risk_tolerances=risk_list,
+        life_stages=stage_list,
+        not_contacted_days=not_contacted_days if not_contacted_days > 0 else None,
+        contacted_after=contacted_after or None,
+        contacted_before=contacted_before or None,
+        search=search or None,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        limit=limit,
+    )
+    try:
+        saved = save_list(name, description, filters)
+        return {"saved": saved.model_dump(), "filters_summary": filters.describe()}
+    except ValueError as e:
+        return {"error": str(e)}
+
+
+@mcp.tool()
+def sandbox_show_lists() -> dict[str, Any]:
+    """List all saved client lists.
+
+    Returns names, descriptions, filter summaries, and last run dates
+    for all saved lists.
+    """
+    from finance_agent.sandbox.list_builder import get_saved_lists
+
+    lists = get_saved_lists()
+    return {
+        "lists": [
+            {
+                "name": sl.name,
+                "description": sl.description,
+                "filters_summary": sl.filters.describe(),
+                "last_run_at": sl.last_run_at,
+            }
+            for sl in lists
+        ],
+        "total": len(lists),
+    }
+
+
+@mcp.tool()
+def sandbox_run_list(name: str) -> dict[str, Any]:
+    """Run a saved client list by name.
+
+    Executes the saved list's filters against Salesforce and returns
+    fresh results. Updates the list's last_run_at timestamp.
+
+    Args:
+        name: Name of the saved list to run.
+    """
+    from finance_agent.sandbox.list_builder import run_saved_list
+
+    sf = _get_sf_client()
+    try:
+        return run_saved_list(sf, name)
+    except ValueError as e:
+        return {"error": str(e)}
+
+
+@mcp.tool()
+def sandbox_delete_list(name: str) -> dict[str, Any]:
+    """Delete a saved client list.
+
+    Args:
+        name: Name of the saved list to delete.
+    """
+    from finance_agent.sandbox.list_builder import delete_saved_list
+
+    deleted = delete_saved_list(name)
+    if deleted:
+        return {"deleted": True, "name": name}
+    return {"deleted": False, "error": f"List '{name}' not found"}
+
+
+@mcp.tool()
+def sandbox_ask_clients(query: str) -> dict[str, Any]:
+    """Query clients using natural language.
+
+    Translates a plain English query into compound filters and executes
+    against Salesforce. Always executes (confirmed=True) since MCP context
+    is non-interactive.
+
+    Examples: "top 50 clients under 50", "growth clients not contacted in 3 months",
+    "pre-retirees with aggressive allocation over 500K"
+
+    Args:
+        query: Natural language client query.
+    """
+    from finance_agent.sandbox.list_builder import execute_nl_query
+
+    sf = _get_sf_client()
+    try:
+        return execute_nl_query(sf, query, confirmed=True)
+    except Exception as e:
+        return {"error": f"NL query failed: {e}"}
 
 
 # --- Entry point ---
