@@ -23,12 +23,13 @@ Work through these in order. Each one takes about 15 minutes.
 
 ## Getting Started
 
-You need two things open:
+You need three things (Lesson 0 walks you through all of this):
 
-- **Salesforce sandbox** in your browser (I'll send you the login separately)
-- **Claude Desktop** on your computer — set up as a Project pointed at this `guide/` folder
+1. **Claude Desktop** — download free at [claude.ai/download](https://claude.ai/download)
+2. **Salesforce sandbox** — login credentials sent to you separately
+3. **These lesson files** — download this repo using the green "Code" > "Download ZIP" button on GitHub
 
-Start with [Lesson 0](00-getting-started.md) — it walks you through the setup.
+Start with [Lesson 0](00-getting-started.md) — it walks you through setup step by step, no technical experience needed.
 
 ## The Claude Tutor
 

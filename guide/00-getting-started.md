@@ -14,41 +14,82 @@ In your career, whether you're working in Salesforce, Schwab Advisor Center, or 
 
 None — this is the first lesson.
 
-## Exercise: Connect to Your Sandbox
+## Part 1: Install Claude Desktop
 
-### Step 1: Log into the Salesforce Sandbox
+Claude Desktop is an app made by Anthropic (the company behind Claude). It's like ChatGPT but runs as a desktop app and can connect to external tools — in our case, it connects to your Salesforce sandbox so you can ask it to look up clients, verify your work, etc.
 
-Open your browser and navigate to your Salesforce developer sandbox. Use the credentials provided to you separately (never stored in this guide).
+### Step 1: Download Claude Desktop
+
+Go to **https://claude.ai/download** and download the version for your computer (Mac or Windows). Install it like any other app.
+
+**What you should see**: Claude Desktop opens and asks you to sign in or create an account.
+
+### Step 2: Sign In
+
+Create an Anthropic account (or sign in if you already have one). You can sign up with your email — it's free to start.
+
+**What you should see**: The Claude Desktop chat interface, similar to ChatGPT but as a standalone app on your computer.
+
+### Step 3: Connect to the Salesforce Tools
+
+This is the step that makes Claude "smart" about your Salesforce sandbox. I'll send you a configuration snippet separately — you'll paste it into Claude Desktop's settings under **Settings > MCP Servers**. This tells Claude how to talk to the Salesforce sandbox.
+
+If you get stuck on this step, just message me and I'll walk you through it.
+
+**What you should see**: After restarting Claude Desktop, you should see a hammer icon (tools) in the chat input area, indicating MCP tools are connected.
+
+## Part 2: Log Into Salesforce
+
+### Step 4: Open the Salesforce Sandbox
+
+Open your browser and navigate to the Salesforce sandbox URL I sent you. Log in with the credentials I provided (keep those private — don't share them or save them anywhere public).
 
 **What you should see**: The Salesforce Lightning home page with a navigation bar at the top showing tabs like Home, Contacts, Tasks, Reports, and Dashboards.
 
-### Step 2: Find the Contacts Tab
+### Step 5: Find the Contacts Tab
 
 Look for "Contacts" in the top navigation bar. If you don't see it, click the App Launcher (the grid icon, usually in the top-left area) and search for "Contacts."
 
-**What you should see**: A list view of contacts. If the sandbox has been seeded, you should see synthetic client names — these are your practice clients.
+**What you should see**: A list view of contacts — these are synthetic (fake) client profiles for you to practice with. No real people.
 
-### Step 3: Find a Specific Client
+### Step 6: Find a Specific Client
 
-Browse through the contacts list and look for **Janet Morales** (or any client whose name you recognize). Click on her name to open her contact record, then click back to return to the list. These are synthetic clients generated specifically for learning — no real people, no real data.
+Browse through the contacts list and look for **Janet Morales** (or any client whose name you recognize). Click on her name to open her contact record, then click back to return to the list.
 
 **What you should see**: Approximately 50 contacts with names, emails, phone numbers, and other details. When you open Janet Morales' record, you should see fields like email, phone, and a description.
 
-### Step 4: Set Up Claude Desktop as Your Tutor
+## Part 3: Set Up the Claude Tutor
 
-Open Claude Desktop on your computer. It should already be connected to the advisor-agent MCP server. To use the guided tutor experience:
+This part is optional but recommended — it turns Claude into a Salesforce tutor that knows the lesson plan and can guide you through exercises.
 
-1. Open Claude Desktop's Projects feature
-2. Create a new project (or open an existing one) and point it to the `guide/` folder in this repository
-3. The `CLAUDE.md` file in this folder will automatically load, giving Claude the context to act as your Salesforce tutor
+### Step 7: Download the Guide Files
 
-**What you should see**: When you start a new conversation in this project, Claude should be aware of the lesson curriculum and your MCP tools.
+You need the lesson files on your computer. The easiest way:
 
-### Step 5: Verify Your Setup with Claude
+1. Go to **https://github.com/jabelk/advisor-agent**
+2. Click the green **"Code"** button near the top right
+3. Click **"Download ZIP"**
+4. Unzip the downloaded file somewhere you'll remember (like your Desktop or Documents folder)
+5. Inside the unzipped folder, find the **`guide/`** folder — that's what you need
 
-This is the pattern you'll use throughout every lesson: do something in Salesforce, then ask Claude to verify.
+### Step 8: Create a Claude Desktop Project
 
-**What you should see**: Claude responds with a list of clients from your sandbox, confirming the MCP connection works.
+A "Project" in Claude Desktop is like a workspace with persistent context. Here's how to set one up:
+
+1. Open Claude Desktop
+2. In the left sidebar, look for **"Projects"** and click it
+3. Click **"Create Project"** (or the **+** button)
+4. Give it a name like **"Salesforce Learning"**
+5. Under project settings, look for an option to **add files** or **set a folder** — point it to the `guide/` folder you downloaded in Step 7
+6. The `CLAUDE.md` file inside that folder will automatically load, which gives Claude the tutor instructions
+
+**What you should see**: When you start a new conversation in this project, Claude knows about the lesson curriculum and can guide you.
+
+### Step 9: Verify Everything Works
+
+This is the pattern you'll use throughout every lesson: do something in Salesforce, then ask Claude to check it.
+
+**What you should see**: Claude responds with information from your sandbox, confirming everything is connected.
 
 ## Verify with Claude
 
