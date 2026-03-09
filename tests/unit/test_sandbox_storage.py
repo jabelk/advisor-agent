@@ -6,10 +6,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from datetime import date, timedelta
+
+from finance_agent.sandbox.models import CompoundFilter
 from finance_agent.sandbox.storage import (
     add_client,
     add_interaction,
     client_count,
+    format_query_results,
     get_client,
     list_clients,
     update_client,
@@ -234,3 +238,150 @@ class TestClientCount:
         assert count == 42
         soql = mock_sf.query.call_args[0][0]
         assert "COUNT()" in soql
+
+
+# Helper: a minimal Contact record for list_clients, including Age__c
+def _make_record(
+    id_="003xx1",
+    first="John",
+    last="Doe",
+    age=35,
+    value=200000,
+    risk="growth",
+    stage="accumulation",
+    tasks=None,
+):
+    return {
+        "Id": id_,
+        "FirstName": first,
+        "LastName": last,
+        "Age__c": age,
+        "Account_Value__c": value,
+        "Risk_Tolerance__c": risk,
+        "Life_Stage__c": stage,
+        "Tasks": tasks,
+    }
+
+
+class TestCompoundFilters:
+    """Tests for compound filter parameters added in 020-client-list-builder."""
+
+    def test_age_range_filter(self, mock_sf):
+        mock_sf.query.return_value = {"records": [_make_record(age=40)]}
+        clients = list_clients(mock_sf, min_age=30, max_age=50)
+        soql = mock_sf.query.call_args[0][0]
+        assert "Age__c >= 30" in soql
+        assert "Age__c <= 50" in soql
+        assert len(clients) == 1
+
+    def test_multi_risk_tolerances(self, mock_sf):
+        mock_sf.query.return_value = {"records": []}
+        list_clients(mock_sf, risk_tolerances=["growth", "aggressive"])
+        soql = mock_sf.query.call_args[0][0]
+        assert "Risk_Tolerance__c IN ('growth', 'aggressive')" in soql
+
+    def test_multi_life_stages(self, mock_sf):
+        mock_sf.query.return_value = {"records": []}
+        list_clients(mock_sf, life_stages=["accumulation", "pre-retirement"])
+        soql = mock_sf.query.call_args[0][0]
+        assert "Life_Stage__c IN ('accumulation', 'pre-retirement')" in soql
+
+    def test_risk_tolerances_overrides_single(self, mock_sf):
+        mock_sf.query.return_value = {"records": []}
+        list_clients(
+            mock_sf,
+            risk_tolerance="moderate",
+            risk_tolerances=["growth"],
+        )
+        soql = mock_sf.query.call_args[0][0]
+        assert "Risk_Tolerance__c IN ('growth')" in soql
+        assert "Risk_Tolerance__c = 'moderate'" not in soql
+
+    def test_not_contacted_days(self, mock_sf):
+        mock_sf.query.return_value = {"records": []}
+        list_clients(mock_sf, not_contacted_days=90)
+        soql = mock_sf.query.call_args[0][0]
+        cutoff = (date.today() - timedelta(days=90)).isoformat()
+        assert f"(LastActivityDate < {cutoff} OR LastActivityDate = null)" in soql
+
+    def test_contacted_after_before(self, mock_sf):
+        mock_sf.query.return_value = {"records": []}
+        list_clients(
+            mock_sf,
+            contacted_after="2026-01-01",
+            contacted_before="2026-03-31",
+        )
+        soql = mock_sf.query.call_args[0][0]
+        assert "LastActivityDate >= 2026-01-01" in soql
+        assert "LastActivityDate <= 2026-03-31" in soql
+
+    def test_combined_compound_filter(self, mock_sf):
+        mock_sf.query.return_value = {
+            "records": [_make_record(age=35, value=300000, risk="growth")]
+        }
+        clients = list_clients(
+            mock_sf,
+            min_age=25,
+            max_age=50,
+            risk_tolerances=["growth"],
+            min_value=200000,
+        )
+        soql = mock_sf.query.call_args[0][0]
+        assert "Age__c >= 25" in soql
+        assert "Age__c <= 50" in soql
+        assert "Risk_Tolerance__c IN ('growth')" in soql
+        assert "Account_Value__c >= 200000" in soql
+        assert len(clients) == 1
+
+    def test_sort_by_age_asc(self, mock_sf):
+        mock_sf.query.return_value = {"records": []}
+        list_clients(mock_sf, sort_by="age", sort_dir="asc")
+        soql = mock_sf.query.call_args[0][0]
+        assert "ORDER BY Age__c ASC" in soql
+
+    def test_sort_by_last_name(self, mock_sf):
+        mock_sf.query.return_value = {"records": []}
+        list_clients(mock_sf, sort_by="last_name")
+        soql = mock_sf.query.call_args[0][0]
+        assert "ORDER BY LastName DESC" in soql
+
+    def test_sort_by_last_interaction_date(self, mock_sf):
+        mock_sf.query.return_value = {"records": []}
+        list_clients(mock_sf, sort_by="last_interaction_date")
+        soql = mock_sf.query.call_args[0][0]
+        assert "ORDER BY LastActivityDate DESC" in soql
+
+    def test_backward_compat_single_risk(self, mock_sf):
+        mock_sf.query.return_value = {"records": []}
+        list_clients(mock_sf, risk_tolerance="growth")
+        soql = mock_sf.query.call_args[0][0]
+        assert "Risk_Tolerance__c = 'growth'" in soql
+
+    def test_age_in_results(self, mock_sf):
+        mock_sf.query.return_value = {
+            "records": [_make_record(age=42)]
+        }
+        clients = list_clients(mock_sf)
+        assert clients[0]["age"] == 42
+
+    def test_format_query_results(self, mock_sf):
+        clients = [
+            {"id": "003xx1", "first_name": "John", "last_name": "Doe",
+             "age": 35, "account_value": 200000, "risk_tolerance": "growth",
+             "life_stage": "accumulation", "last_interaction_date": None},
+            {"id": "003xx2", "first_name": "Jane", "last_name": "Smith",
+             "age": 45, "account_value": 500000, "risk_tolerance": "moderate",
+             "life_stage": "pre-retirement", "last_interaction_date": "2026-02-01"},
+        ]
+        filters = CompoundFilter(
+            min_age=30,
+            max_age=50,
+            risk_tolerances=["growth", "moderate"],
+            limit=25,
+        )
+        result = format_query_results(clients, filters)
+        assert result["clients"] is clients
+        assert result["count"] == 2
+        assert result["requested_limit"] == 25
+        assert "age 30" in result["filters_applied"]
+        assert "risk: growth, moderate" in result["filters_applied"]

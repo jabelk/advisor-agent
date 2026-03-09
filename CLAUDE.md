@@ -94,6 +94,8 @@ This project started as a copy of finance-agent and inherits:
 - SQLite (WAL mode) — no new tables; all dashboard/performance data is derived from existing tables. Schedule config stored as a launchd plist file. (018-track1-dashboard-perf)
 - Python 3.12+ with type hints + anthropic (Claude API for brief/commentary generation), pydantic (models), fastmcp (MCP tools) (019-sfdc-sandbox)
 - SQLite (WAL mode) — new migration for sandbox_client table; meeting briefs and commentary generated on-the-fly (not persisted) (019-sfdc-sandbox)
+- Python 3.12+ with type hints + anthropic (Claude API for NL→filter translation), simple-salesforce (Salesforce SOQL queries), pydantic (filter models + validation), fastmcp (MCP tools) (020-client-list-builder)
+- Salesforce (client data, unchanged from 019); local JSON file (saved list definitions — lightweight, no migration needed) (020-client-list-builder)
 
 ## Recent Changes
 - 011-pattern-lab: Added Python 3.12+ + alpaca-py (broker + market data), anthropic (Claude for pattern parsing), pydantic (structured models), fastmcp (MCP tool exposure)

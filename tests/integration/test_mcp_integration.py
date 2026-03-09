@@ -105,6 +105,12 @@ class TestMCPServerIntegration:
             "sandbox_edit_client",
             "sandbox_meeting_brief",
             "sandbox_market_commentary",
+            "sandbox_query_clients",
+            "sandbox_save_list",
+            "sandbox_show_lists",
+            "sandbox_run_list",
+            "sandbox_delete_list",
+            "sandbox_ask_clients",
         }
         missing = expected - tool_names
         extra = tool_names - expected

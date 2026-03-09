@@ -170,11 +170,19 @@ def main(argv: list[str] | None = None) -> None:
     sb_seed.add_argument("--reset", action="store_true", help="Delete existing sandbox data before seeding")
 
     sb_list = sandbox_sub.add_parser("list", help="List clients from Salesforce")
-    sb_list.add_argument("--risk", help="Filter by risk tolerance (conservative/moderate/growth/aggressive)")
-    sb_list.add_argument("--stage", help="Filter by life stage (accumulation/pre-retirement/retirement/legacy)")
+    sb_list.add_argument("--risk", nargs="+", help="Filter by risk tolerance(s): conservative moderate growth aggressive")
+    sb_list.add_argument("--stage", nargs="+", help="Filter by life stage(s): accumulation pre-retirement retirement legacy")
     sb_list.add_argument("--min-value", type=float, help="Minimum account value")
     sb_list.add_argument("--max-value", type=float, help="Maximum account value")
     sb_list.add_argument("--search", help="Search by name or notes")
+    sb_list.add_argument("--min-age", type=int, help="Minimum client age")
+    sb_list.add_argument("--max-age", type=int, help="Maximum client age")
+    sb_list.add_argument("--not-contacted-days", type=int, help="Clients not contacted in N days")
+    sb_list.add_argument("--contacted-after", help="Last contact on or after date (YYYY-MM-DD)")
+    sb_list.add_argument("--contacted-before", help="Last contact on or before date (YYYY-MM-DD)")
+    sb_list.add_argument("--sort-by", choices=["account_value", "age", "last_name", "last_interaction_date"], default="account_value", help="Sort field")
+    sb_list.add_argument("--sort-dir", choices=["asc", "desc"], default="desc", help="Sort direction")
+    sb_list.add_argument("--limit", type=int, default=50, help="Max results (default: 50)")
 
     sb_view = sandbox_sub.add_parser("view", help="View a client profile")
     sb_view.add_argument("client_id", type=str, help="Salesforce Contact ID")
@@ -204,6 +212,58 @@ def main(argv: list[str] | None = None) -> None:
     sb_commentary = sandbox_sub.add_parser("commentary", help="Generate market commentary")
     sb_commentary.add_argument("--risk", help="Target risk tolerance")
     sb_commentary.add_argument("--stage", help="Target life stage")
+
+    # Saved lists subcommand group
+    sb_lists = sandbox_sub.add_parser("lists", help="Manage saved client lists")
+    lists_sub = sb_lists.add_subparsers(dest="lists_command")
+
+    sb_lists_save = lists_sub.add_parser("save", help="Save a named client list")
+    sb_lists_save.add_argument("--name", required=True, help="List name")
+    sb_lists_save.add_argument("--desc", default="", help="List description")
+    sb_lists_save.add_argument("--risk", nargs="+", help="Risk tolerance(s)")
+    sb_lists_save.add_argument("--stage", nargs="+", help="Life stage(s)")
+    sb_lists_save.add_argument("--min-value", type=float, help="Minimum account value")
+    sb_lists_save.add_argument("--max-value", type=float, help="Maximum account value")
+    sb_lists_save.add_argument("--min-age", type=int, help="Minimum client age")
+    sb_lists_save.add_argument("--max-age", type=int, help="Maximum client age")
+    sb_lists_save.add_argument("--not-contacted-days", type=int, help="Not contacted in N days")
+    sb_lists_save.add_argument("--contacted-after", help="Contacted after date (YYYY-MM-DD)")
+    sb_lists_save.add_argument("--contacted-before", help="Contacted before date (YYYY-MM-DD)")
+    sb_lists_save.add_argument("--search", help="Search text")
+    sb_lists_save.add_argument("--sort-by", choices=["account_value", "age", "last_name", "last_interaction_date"], default="account_value")
+    sb_lists_save.add_argument("--sort-dir", choices=["asc", "desc"], default="desc")
+    sb_lists_save.add_argument("--limit", type=int, default=50, help="Max results")
+
+    lists_sub.add_parser("show", help="Show all saved lists")
+
+    sb_lists_run = lists_sub.add_parser("run", help="Run a saved list")
+    sb_lists_run.add_argument("name", help="List name to run")
+
+    sb_lists_update = lists_sub.add_parser("update", help="Update a saved list")
+    sb_lists_update.add_argument("name", help="List name to update")
+    sb_lists_update.add_argument("--name", dest="new_name", help="New list name")
+    sb_lists_update.add_argument("--desc", help="New description")
+    sb_lists_update.add_argument("--risk", nargs="+", help="Risk tolerance(s)")
+    sb_lists_update.add_argument("--stage", nargs="+", help="Life stage(s)")
+    sb_lists_update.add_argument("--min-value", type=float, help="Minimum account value")
+    sb_lists_update.add_argument("--max-value", type=float, help="Maximum account value")
+    sb_lists_update.add_argument("--min-age", type=int, help="Minimum client age")
+    sb_lists_update.add_argument("--max-age", type=int, help="Maximum client age")
+    sb_lists_update.add_argument("--not-contacted-days", type=int, help="Not contacted in N days")
+    sb_lists_update.add_argument("--contacted-after", help="Contacted after date")
+    sb_lists_update.add_argument("--contacted-before", help="Contacted before date")
+    sb_lists_update.add_argument("--search", help="Search text")
+    sb_lists_update.add_argument("--sort-by", choices=["account_value", "age", "last_name", "last_interaction_date"])
+    sb_lists_update.add_argument("--sort-dir", choices=["asc", "desc"])
+    sb_lists_update.add_argument("--limit", type=int, help="Max results")
+
+    sb_lists_delete = lists_sub.add_parser("delete", help="Delete a saved list")
+    sb_lists_delete.add_argument("name", help="List name to delete")
+
+    # Natural language query
+    sb_ask = sandbox_sub.add_parser("ask", help="Query clients in plain English")
+    sb_ask.add_argument("query", help="Natural language query (e.g., 'top 50 clients under 50')")
+    sb_ask.add_argument("--yes", action="store_true", help="Skip confirmation for low-confidence interpretations")
 
     # MCP server command
     mcp_parser = subparsers.add_parser("mcp", help="Start the MCP research server")
@@ -2320,8 +2380,12 @@ def cmd_sandbox(args: argparse.Namespace) -> None:
         _sandbox_brief(args)
     elif sub == "commentary":
         _sandbox_commentary(args)
+    elif sub == "lists":
+        _sandbox_lists(args)
+    elif sub == "ask":
+        _sandbox_ask(args)
     else:
-        print("Usage: finance-agent sandbox {setup|seed|list|view|add|edit|brief|commentary}")
+        print("Usage: finance-agent sandbox {setup|seed|list|view|add|edit|brief|commentary|lists|ask}")
         sys.exit(1)
 
 
@@ -2369,36 +2433,71 @@ def _sandbox_seed(args: argparse.Namespace) -> None:
 
 
 def _sandbox_list(args: argparse.Namespace) -> None:
-    from finance_agent.sandbox.storage import list_clients
+    from finance_agent.sandbox.models import CompoundFilter
+    from finance_agent.sandbox.storage import format_query_results, list_clients
 
     sf = _get_sf()
+
+    # Build filter kwargs — risk/stage are now lists (nargs="+")
+    risk_tolerances = args.risk  # list or None
+    life_stages = args.stage  # list or None
+
     clients = list_clients(
         sf,
-        risk_tolerance=args.risk,
-        life_stage=args.stage,
+        risk_tolerances=risk_tolerances,
+        life_stages=life_stages,
         min_value=getattr(args, "min_value", None),
         max_value=getattr(args, "max_value", None),
+        min_age=getattr(args, "min_age", None),
+        max_age=getattr(args, "max_age", None),
+        not_contacted_days=getattr(args, "not_contacted_days", None),
+        contacted_after=getattr(args, "contacted_after", None),
+        contacted_before=getattr(args, "contacted_before", None),
         search=args.search,
+        sort_by=args.sort_by,
+        sort_dir=args.sort_dir,
+        limit=args.limit,
+    )
+
+    # Build CompoundFilter for describe()
+    filters = CompoundFilter(
+        risk_tolerances=risk_tolerances,
+        life_stages=life_stages,
+        min_value=getattr(args, "min_value", None),
+        max_value=getattr(args, "max_value", None),
+        min_age=getattr(args, "min_age", None),
+        max_age=getattr(args, "max_age", None),
+        not_contacted_days=getattr(args, "not_contacted_days", None),
+        contacted_after=getattr(args, "contacted_after", None),
+        contacted_before=getattr(args, "contacted_before", None),
+        search=args.search,
+        sort_by=args.sort_by,
+        sort_dir=args.sort_dir,
+        limit=args.limit,
     )
 
     if not clients:
         print("No clients match your criteria.")
+        if filters.describe() != "no filters":
+            print(f"Filters applied: {filters.describe()}")
         return
 
-    # Header
-    print(f"\n{'ID':<20} {'Name':<25} {'Account Value':>14} {'Risk':<14} {'Life Stage':<16} {'Last Contact':<12}")
-    print("-" * 105)
+    # Header with age column
+    print(f"\n{'ID':<20} {'Name':<25} {'Age':>4} {'Account Value':>14} {'Risk':<14} {'Life Stage':<16} {'Last Contact':<12}")
+    print("-" * 111)
 
     for c in clients:
-        cid = c["id"][:15] + "..."  # Truncate Salesforce ID for display
+        cid = c["id"][:15] + "..."
         name = f"{c['first_name']} {c['last_name']}"[:23]
+        age_str = str(c.get("age") or "—")
         value = f"${c['account_value']:,.0f}"
         risk = c["risk_tolerance"]
         stage = c["life_stage"]
         last_contact = c.get("last_interaction_date") or "—"
-        print(f"{cid:<20} {name:<25} {value:>14} {risk:<14} {stage:<16} {last_contact:<12}")
+        print(f"{cid:<20} {name:<25} {age_str:>4} {value:>14} {risk:<14} {stage:<16} {last_contact:<12}")
 
-    print(f"\n{len(clients)} client(s) shown.")
+    print(f"\nFilters applied: {filters.describe()}")
+    print(f"Showing {len(clients)} clients")
 
 
 def _sandbox_view(args: argparse.Namespace) -> None:
@@ -2546,6 +2645,168 @@ def _sandbox_commentary(args: argparse.Namespace) -> None:
         print()
     finally:
         conn.close()
+
+
+def _build_compound_filter(args: argparse.Namespace) -> "CompoundFilter":
+    """Build a CompoundFilter from CLI args that have filter flags."""
+    from finance_agent.sandbox.models import CompoundFilter
+
+    return CompoundFilter(
+        risk_tolerances=getattr(args, "risk", None),
+        life_stages=getattr(args, "stage", None),
+        min_value=getattr(args, "min_value", None),
+        max_value=getattr(args, "max_value", None),
+        min_age=getattr(args, "min_age", None),
+        max_age=getattr(args, "max_age", None),
+        not_contacted_days=getattr(args, "not_contacted_days", None),
+        contacted_after=getattr(args, "contacted_after", None),
+        contacted_before=getattr(args, "contacted_before", None),
+        search=getattr(args, "search", None),
+        sort_by=getattr(args, "sort_by", None) or "account_value",
+        sort_dir=getattr(args, "sort_dir", None) or "desc",
+        limit=getattr(args, "limit", None) or 50,
+    )
+
+
+def _sandbox_ask(args: argparse.Namespace) -> None:
+    from finance_agent.sandbox.list_builder import execute_nl_query
+
+    sf = _get_sf()
+    try:
+        result = execute_nl_query(sf, args.query, confirmed=args.yes)
+    except Exception as e:
+        print(f"Error: NL query service unavailable — {e}")
+        sys.exit(1)
+
+    if not result.get("executed"):
+        interp = result["interpretation"]
+        print(f"\nI interpreted your query as:")
+        print(f"  Filters: {interp['filters'].get('sort_by', 'account_value')} sorted, limit {interp['filters'].get('limit', 50)}")
+        if interp.get("filter_mapping"):
+            print("\n  Filter mapping:")
+            for phrase, filt in interp["filter_mapping"].items():
+                print(f'    "{phrase}" → {filt}')
+        if interp.get("unrecognized"):
+            print(f"\n  Unclear parts: {', '.join(interp['unrecognized'])}")
+        print("\nRun with --yes to skip confirmation, or rephrase your query.")
+        return
+
+    clients = result["clients"]
+    if not clients:
+        print("No clients match your query.")
+        print(f"Filters applied: {result['filters_applied']}")
+        return
+
+    # Show filter mapping
+    if result.get("filter_mapping"):
+        print("\nFilters applied:")
+        for phrase, filt in result["filter_mapping"].items():
+            print(f'  "{phrase}" → {filt}')
+        print()
+
+    # Results table
+    print(f"{'ID':<20} {'Name':<25} {'Age':>4} {'Account Value':>14} {'Risk':<14} {'Life Stage':<16} {'Last Contact':<12}")
+    print("-" * 111)
+    for c in clients:
+        cid = c["id"][:15] + "..."
+        name = f"{c['first_name']} {c['last_name']}"[:23]
+        age_str = str(c.get("age") or "—")
+        value = f"${c['account_value']:,.0f}"
+        print(f"{cid:<20} {name:<25} {age_str:>4} {value:>14} {c['risk_tolerance']:<14} {c['life_stage']:<16} {c.get('last_interaction_date') or '—':<12}")
+
+    print(f"\nShowing {result['count']} clients matching filters")
+
+
+def _sandbox_lists(args: argparse.Namespace) -> None:
+    from finance_agent.sandbox.list_builder import (
+        delete_saved_list,
+        get_saved_lists,
+        run_saved_list,
+        save_list,
+        update_saved_list,
+    )
+    from finance_agent.sandbox.models import CompoundFilter
+
+    sub = getattr(args, "lists_command", None)
+
+    if sub == "save":
+        filters = _build_compound_filter(args)
+        try:
+            saved = save_list(args.name, args.desc, filters)
+            print(f"Saved list '{saved.name}' with filters: {saved.filters.describe()}")
+        except ValueError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    elif sub == "show":
+        lists = get_saved_lists()
+        if not lists:
+            print("No saved lists.")
+            return
+        print(f"\n{'Name':<30} {'Description':<30} {'Filters':<40} {'Last Run':<20}")
+        print("-" * 124)
+        for sl in lists:
+            last_run = sl.last_run_at[:19] if sl.last_run_at else "—"
+            desc = (sl.description or "")[:28]
+            filt = sl.filters.describe()[:38]
+            print(f"{sl.name:<30} {desc:<30} {filt:<40} {last_run:<20}")
+        print(f"\n{len(lists)} saved list(s).")
+
+    elif sub == "run":
+        sf = _get_sf()
+        try:
+            result = run_saved_list(sf, args.name)
+        except ValueError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+        clients = result["clients"]
+        if not clients:
+            print(f"No clients match filters for '{args.name}'.")
+            print(f"Filters applied: {result['filters_applied']}")
+            return
+        print(f"\n{'ID':<20} {'Name':<25} {'Age':>4} {'Account Value':>14} {'Risk':<14} {'Life Stage':<16} {'Last Contact':<12}")
+        print("-" * 111)
+        for c in clients:
+            cid = c["id"][:15] + "..."
+            name = f"{c['first_name']} {c['last_name']}"[:23]
+            age_str = str(c.get("age") or "—")
+            value = f"${c['account_value']:,.0f}"
+            print(f"{cid:<20} {name:<25} {age_str:>4} {value:>14} {c['risk_tolerance']:<14} {c['life_stage']:<16} {c.get('last_interaction_date') or '—':<12}")
+        print(f"\nFilters applied: {result['filters_applied']}")
+        print(f"Showing {result['count']} clients")
+
+    elif sub == "update":
+        updates: dict = {}
+        if args.new_name:
+            updates["name"] = args.new_name
+        if args.desc is not None:
+            updates["description"] = args.desc
+        # Check if any filter flags were provided
+        has_filters = any(
+            getattr(args, a, None) is not None
+            for a in ["risk", "stage", "min_value", "max_value", "min_age", "max_age",
+                       "not_contacted_days", "contacted_after", "contacted_before", "search",
+                       "sort_by", "sort_dir", "limit"]
+        )
+        if has_filters:
+            updates["filters"] = _build_compound_filter(args)
+        try:
+            updated = update_saved_list(args.name, updates)
+            print(f"Updated list '{updated.name}'.")
+        except ValueError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    elif sub == "delete":
+        deleted = delete_saved_list(args.name)
+        if deleted:
+            print(f"Deleted list '{args.name}'.")
+        else:
+            print(f"List '{args.name}' not found.")
+
+    else:
+        print("Usage: finance-agent sandbox lists {save|show|run|update|delete}")
+        sys.exit(1)
 
 
 def cmd_mcp(args: argparse.Namespace) -> None:

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 from simple_salesforce import Salesforce
+
+from finance_agent.sandbox.models import CompoundFilter
 
 # ---------------------------------------------------------------------------
 # Field mapping: local name -> Salesforce Contact API name
@@ -32,8 +36,16 @@ _ALL_FIELDS = (
 )
 
 _SUMMARY_FIELDS = (
-    "Id, FirstName, LastName, Account_Value__c, Risk_Tolerance__c, Life_Stage__c"
+    "Id, FirstName, LastName, Age__c, Account_Value__c, Risk_Tolerance__c, Life_Stage__c"
 )
+
+# Map sort_by names to SOQL field names
+_SORT_FIELD_MAP = {
+    "account_value": "Account_Value__c",
+    "age": "Age__c",
+    "last_name": "LastName",
+    "last_interaction_date": "LastActivityDate",
+}
 
 
 def _soql_escape(value: str) -> str:
@@ -115,18 +127,58 @@ def list_clients(
     search: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    # --- Compound filter parameters (020-client-list-builder) ---
+    min_age: int | None = None,
+    max_age: int | None = None,
+    risk_tolerances: list[str] | None = None,
+    life_stages: list[str] | None = None,
+    not_contacted_days: int | None = None,
+    contacted_after: str | None = None,
+    contacted_before: str | None = None,
+    sort_by: str = "account_value",
+    sort_dir: str = "desc",
 ) -> list[dict]:
     """List Contacts with optional filters. Returns summary dicts."""
     conditions: list[str] = []
 
-    if risk_tolerance:
+    # Multi-value risk_tolerances overrides single risk_tolerance
+    if risk_tolerances:
+        escaped = ", ".join(f"'{_soql_escape(v)}'" for v in risk_tolerances)
+        conditions.append(f"Risk_Tolerance__c IN ({escaped})")
+    elif risk_tolerance:
         conditions.append(f"Risk_Tolerance__c = '{_soql_escape(risk_tolerance)}'")
-    if life_stage:
+
+    # Multi-value life_stages overrides single life_stage
+    if life_stages:
+        escaped = ", ".join(f"'{_soql_escape(v)}'" for v in life_stages)
+        conditions.append(f"Life_Stage__c IN ({escaped})")
+    elif life_stage:
         conditions.append(f"Life_Stage__c = '{_soql_escape(life_stage)}'")
+
     if min_value is not None:
         conditions.append(f"Account_Value__c >= {min_value}")
     if max_value is not None:
         conditions.append(f"Account_Value__c <= {max_value}")
+
+    # Age range filters
+    if min_age is not None:
+        conditions.append(f"Age__c >= {min_age}")
+    if max_age is not None:
+        conditions.append(f"Age__c <= {max_age}")
+
+    # Recency filter: not contacted in N days (or never contacted)
+    if not_contacted_days is not None:
+        cutoff = (date.today() - timedelta(days=not_contacted_days)).isoformat()
+        conditions.append(
+            f"(LastActivityDate < {cutoff} OR LastActivityDate = null)"
+        )
+
+    # Absolute date range filters on LastActivityDate
+    if contacted_after is not None:
+        conditions.append(f"LastActivityDate >= {contacted_after}")
+    if contacted_before is not None:
+        conditions.append(f"LastActivityDate <= {contacted_before}")
+
     if search:
         safe = _soql_escape(search)
         conditions.append(
@@ -136,12 +188,16 @@ def list_clients(
 
     where = f"WHERE {' AND '.join(conditions)} " if conditions else ""
 
-    # Use relationship subquery to get most recent Task date
+    # Resolve sort field
+    sort_field = _SORT_FIELD_MAP.get(sort_by, "Account_Value__c")
+    direction = "ASC" if sort_dir == "asc" else "DESC"
+
+    # Use relationship subquery to get most recent Task date for display
     soql = (
         f"SELECT {_SUMMARY_FIELDS}, "
         f"(SELECT ActivityDate FROM Tasks ORDER BY ActivityDate DESC LIMIT 1) "
         f"FROM Contact {where}"
-        f"ORDER BY Account_Value__c DESC NULLS LAST "
+        f"ORDER BY {sort_field} {direction} NULLS LAST "
         f"LIMIT {limit} OFFSET {offset}"
     )
 
@@ -158,12 +214,23 @@ def list_clients(
             "id": rec["Id"],
             "first_name": rec.get("FirstName") or "",
             "last_name": rec.get("LastName") or "",
+            "age": rec.get("Age__c"),
             "account_value": rec.get("Account_Value__c") or 0,
             "risk_tolerance": rec.get("Risk_Tolerance__c") or "",
             "life_stage": rec.get("Life_Stage__c") or "",
             "last_interaction_date": last_date,
         })
     return clients
+
+
+def format_query_results(clients: list[dict], filters: CompoundFilter) -> dict:
+    """Format query results with filter summary and count."""
+    return {
+        "clients": clients,
+        "count": len(clients),
+        "requested_limit": filters.limit,
+        "filters_applied": filters.describe(),
+    }
 
 
 def update_client(sf: Salesforce, client_id: str, updates: dict) -> bool:
