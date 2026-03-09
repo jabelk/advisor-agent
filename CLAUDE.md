@@ -102,6 +102,8 @@ This project started as a copy of finance-agent and inherits:
 - Salesforce Task standard object (no local SQLite) (022-sfdc-task-logging)
 - Python 3.12+ with type hints + fastmcp 2.14.5 (Streamable HTTP + StaticTokenVerifier), simple_salesforce, alpaca-py, anthropic (023-railway-deploy)
 - SQLite (WAL mode) on Railway persistent volume at `/app/data` (023-railway-deploy)
+- N/A (content feature — markdown files only) + Existing advisor-agent MCP tools (21 sandbox tools), Salesforce developer sandbox with seed data (024-sfdc-learning-guide)
+- N/A (no new data storage — leverages existing Salesforce sandbox and MCP tools) (024-sfdc-learning-guide)
 
 ## Recent Changes
 - 011-pattern-lab: Added Python 3.12+ + alpaca-py (broker + market data), anthropic (Claude for pattern parsing), pydantic (structured models), fastmcp (MCP tool exposure)
