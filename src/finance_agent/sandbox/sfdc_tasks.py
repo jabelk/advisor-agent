@@ -27,13 +27,27 @@ _ACTIVITY_TYPE_MAP: dict[str, str | None] = {
 def resolve_contact(sf: Salesforce, name: str) -> list[dict]:
     """Resolve a client name to Contact records via fuzzy SOQL match.
 
+    Splits multi-word names so "Janet Morales" matches FirstName='Janet'
+    AND LastName='Morales'. Single words match against either field.
+
     Returns a list of dicts with 'id' and 'name' keys. Empty list if
     no matches. Callers should handle disambiguation when len() > 1.
     """
-    safe = _soql_escape(name)
+    parts = name.strip().split()
+    if len(parts) >= 2:
+        first = _soql_escape(parts[0])
+        last = _soql_escape(" ".join(parts[1:]))
+        where = (
+            f"(FirstName LIKE '%{first}%' AND LastName LIKE '%{last}%') "
+            f"OR FirstName LIKE '%{_soql_escape(name)}%' "
+            f"OR LastName LIKE '%{_soql_escape(name)}%'"
+        )
+    else:
+        safe = _soql_escape(name)
+        where = f"FirstName LIKE '%{safe}%' OR LastName LIKE '%{safe}%'"
     soql = (
         "SELECT Id, FirstName, LastName FROM Contact "
-        f"WHERE FirstName LIKE '%{safe}%' OR LastName LIKE '%{safe}%' "
+        f"WHERE {where} "
         "ORDER BY LastName, FirstName"
     )
     result = sf.query(soql)

@@ -182,8 +182,7 @@ def list_clients(
     if search:
         safe = _soql_escape(search)
         conditions.append(
-            f"(FirstName LIKE '%{safe}%' OR LastName LIKE '%{safe}%' "
-            f"OR Description LIKE '%{safe}%')"
+            f"(FirstName LIKE '%{safe}%' OR LastName LIKE '%{safe}%')"
         )
 
     where = f"WHERE {' AND '.join(conditions)} " if conditions else ""

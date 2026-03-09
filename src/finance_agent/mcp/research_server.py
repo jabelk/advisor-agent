@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +18,39 @@ from fastmcp import FastMCP
 
 DB_PATH = os.environ.get("DB_PATH", "data/finance_agent.db")
 RESEARCH_DATA_DIR = Path(os.environ.get("RESEARCH_DATA_DIR", "research_data"))
+PORT = int(os.environ.get("PORT", "8000"))
+_SERVER_START_TIME = time.monotonic()
 
-mcp = FastMCP("Finance Agent Research DB")
+# Configure auth if MCP_API_TOKEN is set (required for Railway deployment)
+_mcp_token = os.environ.get("MCP_API_TOKEN")
+_auth = None
+if _mcp_token:
+    from fastmcp.server.auth import StaticTokenVerifier
+
+    _auth = StaticTokenVerifier(
+        tokens={_mcp_token: {"client_id": "advisor-agent", "scopes": []}}
+    )
+
+mcp = FastMCP("Finance Agent Research DB", auth=_auth)
+
+
+def _init_db() -> None:
+    """Create DB with schema if it doesn't exist. Called from __main__ only."""
+    if Path(DB_PATH).exists():
+        return
+    from finance_agent.db import get_connection, run_migrations
+
+    for candidate in [
+        Path(__file__).resolve().parent.parent.parent.parent / "migrations",
+        Path("/app/migrations"),
+    ]:
+        if candidate.exists():
+            conn = get_connection(DB_PATH)
+            try:
+                run_migrations(conn, str(candidate))
+            finally:
+                conn.close()
+            return
 
 
 def _get_readonly_conn() -> sqlite3.Connection:
@@ -1694,12 +1726,93 @@ def sandbox_outreach_queue(days: int, min_value: float = 0, create_tasks: bool =
     return result
 
 
+# --- Health check endpoint (Railway deployment) ---
+
+
+@mcp.custom_route("/health", methods=["GET"])
+async def health_check(request):  # noqa: ARG001
+    """Health check endpoint for Railway restart policy and monitoring."""
+    from starlette.responses import JSONResponse
+
+    uptime = time.monotonic() - _SERVER_START_TIME
+
+    # Check integrations (env var presence only — no live connections)
+    integrations: dict[str, dict[str, Any]] = {}
+
+    required_checks = {
+        "salesforce": "SFDC_CONSUMER_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "alpaca": "ALPACA_PAPER_API_KEY",
+    }
+    optional_checks = {
+        "finnhub": "FINNHUB_API_KEY",
+        "earningscall": "EARNINGSCALL_API_KEY",
+    }
+
+    any_required_missing = False
+    any_optional_missing = False
+
+    for name, env_var in required_checks.items():
+        configured = bool(os.environ.get(env_var))
+        if not configured:
+            any_required_missing = True
+        integrations[name] = {
+            "required": True,
+            "configured": configured,
+            "connected": configured,
+            "error": f"{env_var} not set" if not configured else None,
+        }
+
+    for name, env_var in optional_checks.items():
+        configured = bool(os.environ.get(env_var))
+        if not configured:
+            any_optional_missing = True
+        integrations[name] = {
+            "required": False,
+            "configured": configured,
+            "connected": configured,
+            "error": None,
+        }
+
+    # Storage checks
+    db_path = Path(DB_PATH)
+    db_exists = db_path.exists()
+    db_size_mb = round(db_path.stat().st_size / (1024 * 1024), 1) if db_exists else 0.0
+    research_dir_exists = RESEARCH_DATA_DIR.is_dir()
+
+    storage = {
+        "db_exists": db_exists,
+        "db_size_mb": db_size_mb,
+        "research_dir_exists": research_dir_exists,
+    }
+
+    # Determine status
+    if any_required_missing:
+        status = "unhealthy"
+    elif any_optional_missing:
+        status = "degraded"
+    else:
+        status = "healthy"
+
+    body = {
+        "status": status,
+        "uptime_seconds": round(uptime),
+        "integrations": integrations,
+        "storage": storage,
+    }
+
+    status_code = 503 if status == "unhealthy" else 200
+    return JSONResponse(body, status_code=status_code)
+
+
 # --- Entry point ---
 
 if __name__ == "__main__":
     import sys
 
+    _init_db()
+
     if "--http" in sys.argv:
-        mcp.run(transport="http", host="0.0.0.0", port=8000)
+        mcp.run(transport="http", host="0.0.0.0", port=PORT)
     else:
         mcp.run()
