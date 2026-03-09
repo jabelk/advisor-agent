@@ -263,6 +263,37 @@ def main(argv: list[str] | None = None) -> None:
     sb_reports_delete = reports_sub.add_parser("delete", help="Delete a Report")
     sb_reports_delete.add_argument("name", help="Report name to delete")
 
+    # Tasks subcommand group (022-sfdc-task-logging)
+    sb_tasks = sandbox_sub.add_parser("tasks", help="Manage follow-up tasks")
+    tasks_sub = sb_tasks.add_subparsers(dest="tasks_command")
+
+    sb_tasks_create = tasks_sub.add_parser("create", help="Create a follow-up task")
+    sb_tasks_create.add_argument("--client", required=True, help="Client name (fuzzy matched)")
+    sb_tasks_create.add_argument("--subject", required=True, help="Task subject")
+    sb_tasks_create.add_argument("--due", help="Due date (YYYY-MM-DD, default: 7 days from today)")
+    sb_tasks_create.add_argument("--priority", choices=["High", "Normal", "Low"], default="Normal", help="Task priority")
+
+    sb_tasks_show = tasks_sub.add_parser("show", help="Show open tasks")
+    sb_tasks_show.add_argument("--overdue", action="store_true", help="Show only overdue tasks")
+    sb_tasks_show.add_argument("--client", help="Filter by client name")
+    sb_tasks_show.add_argument("--summary", action="store_true", help="Show summary counts only")
+
+    sb_tasks_complete = tasks_sub.add_parser("complete", help="Mark a task as completed")
+    sb_tasks_complete.add_argument("subject", help="Task subject (fuzzy matched)")
+
+    # Activity logging (022-sfdc-task-logging)
+    sb_log = sandbox_sub.add_parser("log", help="Log a completed activity")
+    sb_log.add_argument("--client", required=True, help="Client name (fuzzy matched)")
+    sb_log.add_argument("--subject", required=True, help="Activity description")
+    sb_log.add_argument("--type", required=True, choices=["call", "meeting", "email", "other"], dest="activity_type", help="Activity type")
+    sb_log.add_argument("--date", dest="activity_date", help="Activity date (YYYY-MM-DD, default: today)")
+
+    # Outreach queue (022-sfdc-task-logging)
+    sb_outreach = sandbox_sub.add_parser("outreach", help="Generate outreach queue")
+    sb_outreach.add_argument("--days", type=int, required=True, help="Min days since last contact (0 = all)")
+    sb_outreach.add_argument("--min-value", type=float, default=0, help="Min account value")
+    sb_outreach.add_argument("--create-tasks", action="store_true", help="Auto-create follow-up tasks")
+
     # Natural language query
     sb_ask = sandbox_sub.add_parser("ask", help="Query clients in plain English")
     sb_ask.add_argument("query", help="Natural language query (e.g., 'top 50 clients under 50')")
@@ -2388,10 +2419,16 @@ def cmd_sandbox(args: argparse.Namespace) -> None:
         _sandbox_lists(args)
     elif sub == "reports":
         _sandbox_reports(args)
+    elif sub == "tasks":
+        _sandbox_tasks(args)
+    elif sub == "log":
+        _sandbox_log(args)
+    elif sub == "outreach":
+        _sandbox_outreach(args)
     elif sub == "ask":
         _sandbox_ask(args)
     else:
-        print("Usage: finance-agent sandbox {setup|seed|list|view|add|edit|brief|commentary|lists|reports|ask}")
+        print("Usage: finance-agent sandbox {setup|seed|list|view|add|edit|brief|commentary|lists|reports|tasks|log|outreach|ask}")
         sys.exit(1)
 
 
@@ -2842,6 +2879,208 @@ def _sandbox_lists(args: argparse.Namespace) -> None:
     else:
         print("Usage: finance-agent sandbox lists {save|show|delete}")
         sys.exit(1)
+
+
+def _sandbox_tasks(args: argparse.Namespace) -> None:
+    """Dispatch sandbox tasks sub-subcommands."""
+    from finance_agent.sandbox.sfdc_tasks import (
+        complete_task,
+        create_task,
+        get_task_summary,
+        list_tasks,
+        resolve_contact,
+    )
+
+    sub = getattr(args, "tasks_command", None)
+
+    if sub == "create":
+        sf = _get_sf()
+        contacts = resolve_contact(sf, args.client)
+        if not contacts:
+            print(f"No contacts found matching '{args.client}'.")
+            sys.exit(1)
+        if len(contacts) > 1:
+            print(f"Multiple contacts match '{args.client}':")
+            for c in contacts:
+                print(f"  {c['name']} ({c['id']})")
+            print("Please specify the full name.")
+            sys.exit(1)
+
+        contact = contacts[0]
+        try:
+            result = create_task(
+                sf,
+                contact["id"],
+                args.subject,
+                due_date=args.due,
+                priority=args.priority,
+            )
+        except Exception as e:
+            print(f"Error creating task: {e}")
+            sys.exit(1)
+
+        print(f"Task created: \"{result['subject']}\"")
+        print(f"  Client:   {contact['name']} ({contact['id']})")
+        print(f"  Due:      {result['due_date']}")
+        print(f"  Priority: {result['priority']}")
+        print(f"  Status:   {result['status']}")
+
+    elif sub == "show":
+        sf = _get_sf()
+        client_name = getattr(args, "client", None)
+        overdue_only = getattr(args, "overdue", False)
+        summary_only = getattr(args, "summary", False)
+
+        if summary_only:
+            summary = get_task_summary(sf)
+            print("Task Summary:")
+            print(f"  Total open:    {summary['total_open']}")
+            print(f"  Overdue:       {summary['overdue']}")
+            print(f"  Due today:     {summary['due_today']}")
+            print(f"  Due this week: {summary['due_this_week']}")
+            return
+
+        tasks = list_tasks(sf, client_name=client_name, overdue_only=overdue_only)
+        if not tasks:
+            print("No open tasks found.")
+            return
+
+        # Print table
+        header = f"{'Subject':<35} {'Client':<18} {'Due':<12} {'Priority':<10} {'Status'}"
+        print(header)
+        print("─" * len(header))
+        overdue_count = 0
+        for t in tasks:
+            overdue_marker = " ← OVERDUE" if t["overdue"] else ""
+            if t["overdue"]:
+                overdue_count += 1
+            print(
+                f"{t['subject'][:35]:<35} "
+                f"{t['client_name'][:18]:<18} "
+                f"{t['due_date']:<12} "
+                f"{t['priority']:<10} "
+                f"{t['status']}{overdue_marker}"
+            )
+        print(f"\n{len(tasks)} open tasks ({overdue_count} overdue)")
+
+    elif sub == "complete":
+        sf = _get_sf()
+        result = complete_task(sf, args.subject)
+
+        if result["status"] == "completed":
+            print(
+                f"Completed: \"{result['subject']}\" "
+                f"({result['client_name']}, was due {result['due_date']})"
+            )
+        elif result["status"] == "ambiguous":
+            print(f"Multiple tasks match \"{args.subject}\":")
+            for m in result["matches"]:
+                print(f"  \"{m['subject']}\" — {m['client_name']} (due {m['due_date']})")
+            print("Please provide a more specific subject.")
+        elif result["status"] == "already_completed":
+            print(f"Task \"{result['subject']}\" is already completed.")
+        else:
+            print(f"No open tasks found matching \"{args.subject}\".")
+
+    else:
+        print("Usage: finance-agent sandbox tasks {create|show|complete}")
+        sys.exit(1)
+
+
+def _sandbox_log(args: argparse.Namespace) -> None:
+    """Handle sandbox log command."""
+    from finance_agent.sandbox.sfdc_tasks import log_activity, resolve_contact
+
+    sf = _get_sf()
+    contacts = resolve_contact(sf, args.client)
+    if not contacts:
+        print(f"No contacts found matching '{args.client}'.")
+        sys.exit(1)
+    if len(contacts) > 1:
+        print(f"Multiple contacts match '{args.client}':")
+        for c in contacts:
+            print(f"  {c['name']} ({c['id']})")
+        print("Please specify the full name.")
+        sys.exit(1)
+
+    contact = contacts[0]
+    try:
+        result = log_activity(
+            sf,
+            contact["id"],
+            args.subject,
+            args.activity_type,
+            activity_date=args.activity_date,
+        )
+    except ValueError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
+    print(f"Activity logged: \"{result['subject']}\" ({result['activity_type']})")
+    print(f"  Client: {contact['name']} ({contact['id']})")
+    print(f"  Date:   {result['activity_date']}")
+
+
+def _sandbox_outreach(args: argparse.Namespace) -> None:
+    """Handle sandbox outreach command."""
+    from finance_agent.sandbox.sfdc_tasks import (
+        create_outreach_tasks,
+        get_outreach_queue,
+    )
+
+    sf = _get_sf()
+    days = args.days
+    min_value = getattr(args, "min_value", 0) or 0
+    do_create = getattr(args, "create_tasks", False)
+
+    queue = get_outreach_queue(sf, days, min_value=min_value)
+
+    if not queue:
+        label = f"not contacted in {days}+ days" if days > 0 else ""
+        print(f"No clients found{' ' + label if label else ''}.")
+        return
+
+    # Print header
+    label = f"Clients not contacted in {days}+ days" if days > 0 else "All clients"
+    print(f"Outreach Queue: {label}")
+    if min_value > 0:
+        print(f"  Min account value: ${min_value:,.0f}")
+    print()
+
+    header = f"{'Name':<22} {'Account Value':>15}    {'Last Contact':<14} {'Days Ago':>8}"
+    print(header)
+    print("─" * len(header))
+    for c in queue:
+        last = c["last_activity_date"] or "Never"
+        days_ago = str(c["days_since_contact"]) if c["days_since_contact"] < 9999 else "Never"
+        print(
+            f"{c['name'][:22]:<22} "
+            f"${c['account_value']:>14,.0f}    "
+            f"{last:<14} "
+            f"{days_ago:>8}"
+        )
+
+    print(f"\n{len(queue)} clients need outreach")
+
+    if do_create:
+        print()
+        result = create_outreach_tasks(sf, queue, days)
+        if result["tasks_created"] > 0 or result["tasks_skipped"] > 0:
+            print("Created tasks:")
+            # Re-list to show what happened
+            for c in queue:
+                skip = next(
+                    (s for s in result["skipped_reasons"] if s["name"] == c["name"]),
+                    None,
+                )
+                if skip:
+                    print(f"  ⊘ {c['name']} — skipped ({skip['reason']})")
+                else:
+                    print(f"  ✓ {c['name']} — \"Follow-up: No contact in {c['days_since_contact']} days\"")
+            print(
+                f"\n{result['tasks_created']} tasks created, "
+                f"{result['tasks_skipped']} skipped"
+            )
 
 
 def cmd_mcp(args: argparse.Namespace) -> None:

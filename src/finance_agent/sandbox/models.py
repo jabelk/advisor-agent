@@ -119,6 +119,31 @@ class QueryInterpretation(BaseModel):
     confidence: Literal["high", "medium", "low"]
 
 
+ActivityType = Literal["call", "meeting", "email", "other"]
+TaskPriority = Literal["High", "Normal", "Low"]
+
+VALID_ACTIVITY_TYPES = {"call", "meeting", "email", "other"}
+
+ADVISOR_AGENT_TAG = "[advisor-agent]"
+
+
+class TaskCreate(BaseModel):
+    """Input validation for creating a follow-up task."""
+
+    subject: str = Field(min_length=1, max_length=255)
+    due_date: str | None = None  # YYYY-MM-DD; defaults to today + 7 days
+    priority: TaskPriority = "Normal"
+
+
+class TaskSummary(BaseModel):
+    """Summary counts for the task dashboard."""
+
+    total_open: int = 0
+    overdue: int = 0
+    due_today: int = 0
+    due_this_week: int = 0
+
+
 class ClientCreate(BaseModel):
     """Input validation for creating or editing a client."""
 
