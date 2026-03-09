@@ -76,8 +76,8 @@ class TestRunMigrations:
     def test_applies_initial_migration(self, tmp_path: Path) -> None:
         conn = get_connection(str(tmp_path / "test.db"))
         applied = run_migrations(conn, MIGRATIONS_DIR)
-        assert applied == 8
-        assert get_schema_version(conn) == 9
+        assert applied == 9
+        assert get_schema_version(conn) == 10
         conn.close()
 
     def test_skips_already_applied(self, tmp_path: Path) -> None:

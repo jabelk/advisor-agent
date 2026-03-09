@@ -838,6 +838,46 @@ def export_backtest(
         conn.close()
 
 
+# --- Tool: get_pattern_alerts (017 — Live Pattern Alerts) ---
+
+
+@mcp.tool()
+def get_pattern_alerts(
+    status: str = "",
+    pattern_id: int = 0,
+    ticker: str = "",
+    days: int = 7,
+) -> dict[str, Any]:
+    """Retrieve recent pattern alerts from the scanner.
+
+    Returns alerts with pattern name, ticker, trigger details, recommended action,
+    win rate, and lifecycle status. Use this to check what patterns have triggered recently.
+
+    Args:
+        status: Filter by status (new, acknowledged, acted_on, dismissed). Default: all.
+        pattern_id: Filter by pattern ID. Default: all patterns.
+        ticker: Filter by ticker symbol. Default: all tickers.
+        days: Show alerts from last N days. Default: 7.
+    """
+    from finance_agent.patterns.alert_storage import list_alerts
+
+    conn = _get_readonly_conn()
+    try:
+        alerts = list_alerts(
+            conn,
+            status=status or None,
+            pattern_id=pattern_id or None,
+            ticker=ticker or None,
+            days=days,
+        )
+        return {
+            "alerts": alerts,
+            "total": len(alerts),
+        }
+    finally:
+        conn.close()
+
+
 # --- Option chain lookup ---
 
 
