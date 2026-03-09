@@ -90,6 +90,9 @@ class TestMCPServerIntegration:
             "get_pattern_detail",
             "get_backtest_results",
             "get_paper_trade_summary",
+            "run_backtest",
+            "run_ab_test",
+            "export_backtest",
         }
         missing = expected - tool_names
         extra = tool_names - expected

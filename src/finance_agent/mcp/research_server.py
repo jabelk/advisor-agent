@@ -29,6 +29,37 @@ def _get_readonly_conn() -> sqlite3.Connection:
     return conn
 
 
+def _get_readwrite_conn() -> sqlite3.Connection:
+    """Open a read-write SQLite connection with busy timeout.
+
+    Used by backtest and A/B test tools that write to the market data cache
+    via fetch_and_cache_bars(). The tools are read-only in intent — the only
+    write is caching price bars to avoid redundant Alpaca API calls.
+    """
+    conn = sqlite3.connect(f"file:{DB_PATH}", uri=True)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 5000")
+    return conn
+
+
+def _get_alpaca_keys() -> tuple[str, str]:
+    """Read Alpaca paper trading API keys from environment variables.
+
+    Returns:
+        Tuple of (api_key, secret_key).
+
+    Raises:
+        dict: Error dict if keys are not configured.
+    """
+    api_key = os.environ.get("ALPACA_API_KEY_PAPER", "")
+    secret_key = os.environ.get("ALPACA_SECRET_KEY_PAPER", "")
+    if not api_key or not secret_key:
+        raise ValueError(
+            "Alpaca API keys not configured. Set ALPACA_API_KEY_PAPER and ALPACA_SECRET_KEY_PAPER."
+        )
+    return api_key, secret_key
+
+
 def _rows_to_dicts(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
     """Convert sqlite3.Row objects to plain dicts."""
     return [dict(row) for row in rows]
@@ -454,6 +485,351 @@ def get_paper_trade_summary(pattern_id: int) -> dict[str, Any]:
             "total_pnl": row["total_pnl"] or 0.0,
             "avg_pnl": row["avg_pnl"] or 0.0,
             "open_trades": open_row["cnt"] if open_row else 0,
+        }
+    finally:
+        conn.close()
+
+
+# --- Tool: run_backtest (015 — Pattern Lab MCP) ---
+
+
+@mcp.tool()
+def run_backtest(
+    pattern_id: int,
+    tickers: str = "",
+    start_date: str = "",
+    end_date: str = "",
+) -> dict[str, Any]:
+    """Run a multi-ticker backtest for a pattern, returning per-ticker breakdown and aggregate metrics.
+
+    Fetches price data from Alpaca (cached), runs the appropriate backtest engine,
+    and saves results. Read-only in intent — only writes to the market data cache.
+
+    Args:
+        pattern_id: Pattern ID to backtest.
+        tickers: Comma-separated ticker list. Defaults to watchlist tickers.
+        start_date: Start date YYYY-MM-DD. Defaults to 1 year ago.
+        end_date: End date YYYY-MM-DD. Defaults to today.
+    """
+    from datetime import date, timedelta
+
+    from finance_agent.patterns.market_data import fetch_and_cache_bars
+    from finance_agent.patterns.models import EventDetectionConfig, RuleSet
+    from finance_agent.patterns.storage import get_pattern, save_backtest_result
+
+    # Validate Alpaca keys
+    try:
+        api_key, secret_key = _get_alpaca_keys()
+    except ValueError as e:
+        return {"error": str(e)}
+
+    conn = _get_readwrite_conn()
+    try:
+        # Validate pattern exists
+        pattern = get_pattern(conn, pattern_id)
+        if not pattern:
+            return {"error": f"Pattern #{pattern_id} not found."}
+
+        # Parse dates with defaults
+        if not end_date:
+            end_date = date.today().isoformat()
+        if not start_date:
+            start_date = (date.today() - timedelta(days=365)).isoformat()
+
+        # Parse tickers — fall back to watchlist
+        ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()] if tickers else []
+        if not ticker_list:
+            from finance_agent.data.watchlist import list_companies
+
+            companies = list_companies(conn)
+            ticker_list = [c["ticker"] for c in companies]
+            if not ticker_list:
+                return {"error": "No tickers specified and watchlist is empty."}
+
+        rule_set = RuleSet.model_validate_json(pattern["rule_set_json"])
+
+        # Fetch price data for all tickers
+        all_bars: dict[str, list[dict]] = {}
+        for ticker in ticker_list:
+            bars = fetch_and_cache_bars(
+                conn, ticker, start_date, end_date, "day", api_key, secret_key,
+            )
+            if bars:
+                all_bars[ticker] = bars
+
+        if not all_bars:
+            return {"error": "No price data available for any ticker."}
+
+        # Route to appropriate backtest engine
+        is_qualitative = rule_set.trigger_type.value == "qualitative"
+
+        if is_qualitative:
+            # Build event config from pattern's trigger conditions
+            spike_threshold = None
+            volume_multiple = None
+            for tc in rule_set.trigger_conditions:
+                if tc.field == "price_change_pct" and spike_threshold is None:
+                    spike_threshold = float(tc.value)
+                if tc.field == "volume_spike" and volume_multiple is None:
+                    volume_multiple = float(tc.value)
+
+            event_config = EventDetectionConfig(
+                spike_threshold_pct=spike_threshold or 5.0,
+                volume_multiple_min=volume_multiple or 1.5,
+                entry_window_days=rule_set.entry_signal.window_days,
+            )
+
+            from finance_agent.patterns.backtest import (
+                run_multi_ticker_news_dip_backtest,
+                run_news_dip_backtest,
+            )
+
+            available_tickers = list(all_bars.keys())
+            if len(available_tickers) == 1:
+                ticker = available_tickers[0]
+                report, no_entry_events = run_news_dip_backtest(
+                    pattern_id=pattern_id,
+                    rule_set=rule_set,
+                    bars=all_bars[ticker],
+                    ticker=ticker,
+                    start_date=start_date,
+                    end_date=end_date,
+                    event_config=event_config,
+                )
+                save_backtest_result(conn, report)
+                from finance_agent.patterns.models import AggregatedBacktestReport, TickerBreakdown
+
+                agg = AggregatedBacktestReport(
+                    pattern_id=pattern_id,
+                    date_range_start=start_date,
+                    date_range_end=end_date,
+                    tickers=[ticker],
+                    ticker_breakdowns=[
+                        TickerBreakdown(
+                            ticker=ticker,
+                            events_detected=report.trigger_count,
+                            trades_entered=report.trade_count,
+                            win_count=report.win_count,
+                            win_rate=report.win_count / report.trade_count if report.trade_count else 0.0,
+                            avg_return_pct=report.avg_return_pct,
+                            total_return_pct=report.total_return_pct,
+                        )
+                    ],
+                    combined_report=report,
+                    no_entry_events=no_entry_events,
+                )
+            else:
+                agg = run_multi_ticker_news_dip_backtest(
+                    pattern_id=pattern_id,
+                    rule_set=rule_set,
+                    all_bars=all_bars,
+                    tickers=available_tickers,
+                    start_date=start_date,
+                    end_date=end_date,
+                    event_config=event_config,
+                )
+                save_backtest_result(conn, agg.combined_report)
+
+            result = agg.model_dump()
+        else:
+            # Quantitative pattern — standard backtest engine
+            from finance_agent.patterns.backtest import run_backtest as _run_backtest
+
+            report = _run_backtest(
+                pattern_id=pattern_id,
+                rule_set=rule_set,
+                bars_by_ticker=all_bars,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            save_backtest_result(conn, report)
+            result = report.model_dump()
+
+        result["pattern_name"] = pattern["name"]
+        return result
+    finally:
+        conn.close()
+
+
+# --- Tool: run_ab_test (015 — Pattern Lab MCP) ---
+
+
+@mcp.tool()
+def run_ab_test(
+    pattern_ids: str,
+    tickers: str,
+    start_date: str = "",
+    end_date: str = "",
+) -> dict[str, Any]:
+    """Compare 2+ pattern variants on identical data with statistical significance testing.
+
+    Runs each pattern variant against the same tickers and date range, then compares
+    win rates (Fisher's exact test) and average returns (Welch's t-test).
+
+    Args:
+        pattern_ids: Comma-separated pattern IDs (e.g., "1,2,3").
+        tickers: Comma-separated ticker list (required).
+        start_date: Start date YYYY-MM-DD. Defaults to 1 year ago.
+        end_date: End date YYYY-MM-DD. Defaults to today.
+    """
+    from datetime import date, timedelta
+
+    from finance_agent.patterns.market_data import fetch_and_cache_bars
+    from finance_agent.patterns.models import EventDetectionConfig, RuleSet
+    from finance_agent.patterns.stats import run_ab_test as _run_ab_test
+    from finance_agent.patterns.storage import get_pattern
+
+    # Parse pattern IDs
+    try:
+        id_list = [int(x.strip()) for x in pattern_ids.split(",") if x.strip()]
+    except ValueError:
+        return {"error": "Invalid pattern_ids format. Use comma-separated integers (e.g., '1,2,3')."}
+
+    if len(id_list) < 2:
+        return {"error": "A/B test requires at least 2 pattern IDs."}
+
+    # Parse tickers
+    ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+    if not ticker_list:
+        return {"error": "--tickers is required for A/B testing."}
+
+    # Validate Alpaca keys
+    try:
+        api_key, secret_key = _get_alpaca_keys()
+    except ValueError as e:
+        return {"error": str(e)}
+
+    conn = _get_readwrite_conn()
+    try:
+        # Validate patterns exist and are confirmed
+        event_configs: dict[int, tuple[RuleSet, EventDetectionConfig]] = {}
+        for pid in id_list:
+            pattern = get_pattern(conn, pid)
+            if not pattern:
+                return {"error": f"Pattern #{pid} not found."}
+            if pattern["status"] == "draft":
+                return {"error": f"Pattern #{pid} is in draft status. Confirm the pattern first."}
+
+            rule_set = RuleSet.model_validate_json(pattern["rule_set_json"])
+
+            spike_threshold = None
+            volume_multiple = None
+            for tc in rule_set.trigger_conditions:
+                if tc.field == "price_change_pct" and spike_threshold is None:
+                    spike_threshold = float(tc.value)
+                if tc.field == "volume_spike" and volume_multiple is None:
+                    volume_multiple = float(tc.value)
+
+            event_config = EventDetectionConfig(
+                spike_threshold_pct=spike_threshold or 5.0,
+                volume_multiple_min=volume_multiple or 1.5,
+                entry_window_days=rule_set.entry_signal.window_days,
+            )
+            event_configs[pid] = (rule_set, event_config)
+
+        # Parse dates with defaults
+        if not end_date:
+            end_date = date.today().isoformat()
+        if not start_date:
+            start_date = (date.today() - timedelta(days=365)).isoformat()
+
+        # Fetch price data
+        all_bars: dict[str, list[dict]] = {}
+        for ticker in ticker_list:
+            bars = fetch_and_cache_bars(
+                conn, ticker, start_date, end_date, "day", api_key, secret_key,
+            )
+            if bars:
+                all_bars[ticker] = bars
+
+        if not all_bars:
+            return {"error": "No price data available for any ticker."}
+
+        # Run A/B test
+        result = _run_ab_test(
+            conn=conn,
+            pattern_ids=id_list,
+            tickers=list(all_bars.keys()),
+            start_date=start_date,
+            end_date=end_date,
+            all_bars=all_bars,
+            event_configs=event_configs,
+        )
+
+        return result.model_dump()
+    finally:
+        conn.close()
+
+
+# --- Tool: export_backtest (015 — Pattern Lab MCP) ---
+
+
+@mcp.tool()
+def export_backtest(
+    pattern_id: int,
+    backtest_id: int = 0,
+    output_dir: str = "",
+) -> dict[str, Any]:
+    """Export backtest results for a pattern to a markdown file.
+
+    Generates a detailed markdown report with performance metrics, trade log,
+    and regime analysis. Writes the file to the local filesystem.
+
+    Args:
+        pattern_id: Pattern ID to export.
+        backtest_id: Specific backtest result ID. Default: most recent.
+        output_dir: Directory for export. Default: current directory.
+    """
+    from finance_agent.patterns.export import export_backtest_markdown, generate_export_path
+    from finance_agent.patterns.storage import get_pattern
+
+    conn = _get_readonly_conn()
+    try:
+        # Validate pattern exists
+        pattern = get_pattern(conn, pattern_id)
+        if not pattern:
+            return {"error": f"Pattern #{pattern_id} not found."}
+
+        # Fetch backtest result
+        if backtest_id:
+            bt_row = conn.execute(
+                "SELECT * FROM backtest_result WHERE id = ? AND pattern_id = ?",
+                (backtest_id, pattern_id),
+            ).fetchone()
+            if not bt_row:
+                return {"error": f"Backtest #{backtest_id} not found for pattern #{pattern_id}."}
+        else:
+            bt_row = conn.execute(
+                "SELECT * FROM backtest_result WHERE pattern_id = ? ORDER BY created_at DESC LIMIT 1",
+                (pattern_id,),
+            ).fetchone()
+            if not bt_row:
+                return {"error": f"No backtest results found for pattern #{pattern_id}. Run a backtest first."}
+
+        backtest = dict(bt_row)
+        actual_backtest_id = backtest["id"]
+
+        # Fetch trades for this backtest
+        trade_rows = conn.execute(
+            "SELECT * FROM backtest_trade WHERE backtest_id = ? ORDER BY entry_date",
+            (actual_backtest_id,),
+        ).fetchall()
+        trades = [dict(r) for r in trade_rows]
+
+        # Generate markdown
+        md_content = export_backtest_markdown(pattern, backtest, trades)
+
+        # Write file
+        file_path = generate_export_path(
+            pattern_id, "backtest", output_dir if output_dir else None,
+        )
+        Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(file_path).write_text(md_content, encoding="utf-8")
+
+        return {
+            "file_path": file_path,
+            "pattern_id": pattern_id,
+            "backtest_id": actual_backtest_id,
         }
     finally:
         conn.close()
