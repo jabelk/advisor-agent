@@ -79,18 +79,27 @@ def main(argv: list[str] | None = None) -> None:
     profile_parser.add_argument("ticker", help="Stock ticker symbol")
 
     # Pattern Lab commands
-    pattern_parser = subparsers.add_parser("pattern", help="Pattern Lab: describe, backtest, and paper trade patterns")
+    pattern_parser = subparsers.add_parser(
+        "pattern", help="Pattern Lab: describe, backtest, and paper trade patterns",
+    )
     pattern_sub = pattern_parser.add_subparsers(dest="pattern_command")
 
-    pat_describe = pattern_sub.add_parser("describe", help="Describe a trading pattern in plain text")
+    pat_describe = pattern_sub.add_parser(
+        "describe", help="Describe a trading pattern in plain text",
+    )
     pat_describe.add_argument("description", help="Plain-text pattern description")
 
-    pat_backtest = pattern_sub.add_parser("backtest", help="Backtest a pattern against historical data")
+    pat_backtest = pattern_sub.add_parser(
+        "backtest", help="Backtest a pattern against historical data",
+    )
     pat_backtest.add_argument("pattern_id", type=int, help="Pattern ID to backtest")
     pat_backtest.add_argument("--start", help="Start date (YYYY-MM-DD, default: 1 year ago)")
     pat_backtest.add_argument("--end", help="End date (YYYY-MM-DD, default: today)")
     pat_backtest.add_argument("--tickers", help="Comma-separated tickers to test against")
-    pat_backtest.add_argument("--shares", type=int, default=100, help="Number of shares owned (for covered calls, default: 100)")
+    pat_backtest.add_argument(
+        "--shares", type=int, default=100,
+        help="Number of shares owned (for covered calls, default: 100)",
+    )
     pat_backtest.add_argument("--events", help="Manual event dates (comma-separated YYYY-MM-DD)")
     pat_backtest.add_argument("--events-file", help="File with event dates (one per line)")
     pat_backtest.add_argument("--spike-threshold", type=float, help="Override spike threshold %% (default: from pattern)")
